@@ -13,7 +13,6 @@ export const capturePhoto = async (camera: RefObject<CameraView>): Promise<strin
     if (!camera.current) return null;
     const photo = await camera.current.takePictureAsync({
       quality: 0.8,
-      skipProcessing: true
     });
     return photo?.uri || null;
   } catch (error) {
