@@ -96,14 +96,15 @@ export const handleCapture = async (
         }
       }
       
-      // 4. Else if storage available, save to gallery
-      if (!uploaded) {
+      // 4. Else if saveToGallery is enabled (default true) and storage available, save to device gallery
+      const shouldSaveGallery = settings.saveToGallery !== false;
+      if (!uploaded && shouldSaveGallery) {
         const spaceOk = await hasEnoughSpace();
         if (spaceOk) {
           try {
             finalPhotoUri = await saveToGallery(photoUri, 'photo');
           } catch (e) {
-            console.error('Gallery save failed', e);
+            console.error('Gallery save failed, keeping local temp photo', e);
           }
         }
       }

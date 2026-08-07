@@ -5,17 +5,22 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING, RADIUS, STORAGE_KEYS } from '../utils/constants';
 import { clearEvents } from '../services/movementLogService';
+import { cleanupTempFiles } from '../services/storageService';
+import { AppSettings } from '../types';
+
+const DEFAULT_SETTINGS: AppSettings = {
+  sensitivity: 'medium',
+  captureMode: 'photo',
+  cameraPosition: 'back',
+  showStealthIndicator: true,
+  videoDuration: 15,
+  saveToGallery: true,
+  googleDriveEnabled: false,
+};
 
 export const SettingsScreen = () => {
   const navigation = useNavigation();
-  const [settings, setSettings] = useState({
-    sensitivity: 'medium',
-    captureMode: 'photo',
-    cameraPosition: 'back',
-    showStealthIndicator: true,
-    videoDuration: 15,
-    googleDriveEnabled: false,
-  });
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     loadSettings();
@@ -30,7 +35,7 @@ export const SettingsScreen = () => {
     }
   };
 
-  const updateSetting = async (key: string, value: any) => {
+  const updateSetting = async (key: keyof AppSettings, value: any) => {
     const newSettings = { ...settings, [key]: value };
     setSettings(newSettings);
     try {
@@ -40,25 +45,62 @@ export const SettingsScreen = () => {
     }
   };
 
-  const handleClearData = () => {
+  const handleClearEventsOnly = () => {
     Alert.alert(
-      'Clear All Data',
-      'This will delete all movement logs and cached photos. This cannot be undone.',
+      'Clear Movement Log',
+      'This will clear all recorded event history.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete Everything',
+          text: 'Clear Log',
           style: 'destructive',
           onPress: async () => {
             await clearEvents();
-            Alert.alert('Done', 'All data has been cleared.');
+            Alert.alert('Cleared', 'Movement log has been cleared.');
           },
         },
       ]
     );
   };
 
-  const renderPillRow = (key: string, options: { value: any; label: string }[]) => {
+  const handleClearCacheOnly = () => {
+    Alert.alert(
+      'Clear Temp Cache',
+      'This will delete cached photo/video files from temporary storage.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Cache',
+          style: 'destructive',
+          onPress: async () => {
+            const count = await cleanupTempFiles();
+            Alert.alert('Cleared', `Removed ${count} temporary files.`);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleClearAllData = () => {
+    Alert.alert(
+      'Clear All Data',
+      'This will delete all movement log history and cached capture files.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All',
+          style: 'destructive',
+          onPress: async () => {
+            await clearEvents();
+            const count = await cleanupTempFiles();
+            Alert.alert('Cleared All', `Deleted logs and ${count} cached files.`);
+          },
+        },
+      ]
+    );
+  };
+
+  const renderPillRow = (key: keyof AppSettings, options: { value: any; label: string }[]) => {
     return (
       <View style={styles.pillGroup}>
         {options.map((opt) => {
@@ -128,7 +170,7 @@ export const SettingsScreen = () => {
 
         {/* Capture Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>💾 Capture</Text>
+          <Text style={styles.sectionTitle}>💾 Capture & Save</Text>
           <View style={styles.card}>
             <Text style={styles.label}>Capture Mode</Text>
             <View style={styles.pillSpacer}>
@@ -155,9 +197,19 @@ export const SettingsScreen = () => {
             )}
 
             <View style={styles.divider} />
-            <Text style={styles.hint}>
-              📱 Photos & videos are saved to your device gallery automatically.
-            </Text>
+            
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabel}>
+                <Text style={styles.label}>Save to Phone Photos</Text>
+                <Text style={styles.hint}>Automatically add captured photos/videos to your Photos library album</Text>
+              </View>
+              <Switch
+                value={settings.saveToGallery !== false}
+                onValueChange={(val) => updateSetting('saveToGallery', val)}
+                trackColor={{ false: COLORS.SURFACE, true: COLORS.PRIMARY }}
+                thumbColor={settings.saveToGallery !== false ? '#fff' : COLORS.TEXT_DIM}
+              />
+            </View>
           </View>
         </View>
 
@@ -198,14 +250,25 @@ export const SettingsScreen = () => {
 
         {/* Storage Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🗄️ Storage</Text>
+          <Text style={styles.sectionTitle}>🗄️ Storage & Clean Up</Text>
           <View style={styles.card}>
-            <Text style={styles.label}>Local Storage</Text>
+            <Text style={styles.label}>Manage Saved Data</Text>
             <Text style={styles.hint}>
-              Captured photos & videos are saved to your device gallery in the "GuardCam" album.
+              Clear event logs or temporary files to free up device space.
             </Text>
-            <Pressable style={styles.dangerBtn} onPress={handleClearData}>
-              <Text style={styles.dangerBtnText}>🗑️ Clear All Movement Logs</Text>
+            
+            <View style={styles.btnRow}>
+              <Pressable style={styles.actionBtn} onPress={handleClearEventsOnly}>
+                <Text style={styles.actionBtnText}>📋 Clear Log</Text>
+              </Pressable>
+              
+              <Pressable style={styles.actionBtn} onPress={handleClearCacheOnly}>
+                <Text style={styles.actionBtnText}>🧹 Clear Cache</Text>
+              </Pressable>
+            </View>
+
+            <Pressable style={styles.dangerBtn} onPress={handleClearAllData}>
+              <Text style={styles.dangerBtnText}>🗑️ Clear All Logs & Temp Photos</Text>
             </Pressable>
           </View>
         </View>
@@ -222,14 +285,13 @@ export const SettingsScreen = () => {
               • Tap START to begin monitoring{'\n'}
               • Screen goes black (stealth mode){'\n'}
               • Camera detects motion every 2 seconds{'\n'}
-              • Photos are captured & saved automatically{'\n'}
+              • Photos captured & saved per your settings{'\n'}
               • Tap the black screen to show controls{'\n'}
               • View events in the Movement Log
             </Text>
           </View>
         </View>
 
-        {/* Bottom spacer */}
         <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
@@ -354,6 +416,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
   },
+  btnRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: SPACING.md,
+    gap: SPACING.sm,
+  },
+  actionBtn: {
+    flex: 1,
+    backgroundColor: COLORS.SURFACE,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.BORDER,
+  },
+  actionBtnText: {
+    color: COLORS.TEXT,
+    fontWeight: '600',
+    fontSize: 13,
+  },
   dangerBtn: {
     marginTop: SPACING.md,
     backgroundColor: 'rgba(255, 51, 102, 0.1)',
@@ -367,6 +449,6 @@ const styles = StyleSheet.create({
   dangerBtnText: {
     color: COLORS.DANGER,
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 13,
   },
 });

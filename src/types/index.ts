@@ -24,6 +24,7 @@ export interface AppSettings {
   cameraPosition: 'front' | 'back';
   showStealthIndicator: boolean;
   videoDuration: number;
+  saveToGallery: boolean;
   googleDriveEnabled: boolean;
   googleDriveFolderId?: string;
 }
