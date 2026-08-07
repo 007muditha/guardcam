@@ -1,4 +1,52 @@
 {
-  "name": "GuardCam",
-  "displayName": "GuardCam"
+  "expo": {
+    "name": "GuardCam",
+    "slug": "guardcam",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0F"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "GuardCam uses your camera to monitor for motion and security events.",
+        "NSMicrophoneUsageDescription": "GuardCam records audio with security video clips.",
+        "NSPhotoLibraryUsageDescription": "GuardCam saves security footage to your photo library.",
+        "NSPhotoLibraryAddUsageDescription": "GuardCam needs to save security photos and videos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0F"
+      },
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "GuardCam uses your camera to monitor for motion and security events."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "GuardCam saves security footage to your photo library.",
+          "savePhotosPermission": "GuardCam needs to save security photos and videos."
+        }
+      ]
+    ]
+  }
 }
