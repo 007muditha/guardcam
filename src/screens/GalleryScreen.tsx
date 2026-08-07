@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, FlatList, Image, Dimensions, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import * as MediaLibrary from 'expo-media-library';
 import { COLORS, SPACING, RADIUS } from '../utils/constants';
 import { getEvents } from '../services/movementLogService';
 import { formatTime, formatRelativeDate } from '../utils/formatters';
@@ -19,11 +20,29 @@ export const GalleryScreen = () => {
     loadMedia();
   }, []);
 
+  const resolveItemUri = async (item: MotionEvent): Promise<MotionEvent> => {
+    if (item.photoUri && item.photoUri.startsWith('ph://')) {
+      try {
+        const assetId = item.photoUri.replace('ph://', '');
+        const info = await MediaLibrary.getAssetInfoAsync(assetId);
+        if (info?.localUri) {
+          return { ...item, photoUri: info.localUri };
+        }
+      } catch (e) {
+        console.warn('Failed to resolve ph:// URI:', item.photoUri);
+      }
+    }
+    return item;
+  };
+
   const loadMedia = async () => {
     try {
       const events = await getEvents();
       const withMedia = events.filter((e: any) => e.hasPhoto || e.hasVideo);
-      setMedia(withMedia.sort((a: any, b: any) => b.timestamp - a.timestamp));
+      
+      // Resolve any legacy ph:// URIs into local file URIs
+      const resolvedMedia = await Promise.all(withMedia.map(resolveItemUri));
+      setMedia(resolvedMedia.sort((a: any, b: any) => b.timestamp - a.timestamp));
     } catch (e) {
       console.warn('Failed to load gallery media');
     }

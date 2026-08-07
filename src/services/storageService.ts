@@ -13,9 +13,7 @@ export const checkStorageSpace = async (): Promise<StorageStatus> => {
     if (typeof FileSystem.getFreeDiskStorageAsync === 'function') {
       try {
         freeBytes = await FileSystem.getFreeDiskStorageAsync();
-      } catch (e) {
-        // Fallback silently if SDK 54+ legacy method warns
-      }
+      } catch (e) {}
     }
     if (typeof FileSystem.getTotalDiskCapacityAsync === 'function') {
       try {
@@ -31,7 +29,6 @@ export const checkStorageSpace = async (): Promise<StorageStatus> => {
       freeBytes
     };
   } catch (error) {
-    console.warn('[Storage] Space check fallback:', error);
     return { available: true, usedBytes: 0, freeBytes: 500 * 1024 * 1024 };
   }
 };
@@ -55,7 +52,8 @@ export const requestMediaPermission = async (): Promise<boolean> => {
 
 /**
  * Saves a file to the GuardCam album in gallery.
- * Uses asset & album string IDs to prevent native bridge TypeError.
+ * Returns local file:// URI (or asset.uri if file:// is unavailable)
+ * so React Native <Image /> can render it without iOS ph:// URL handler crashes.
  */
 export const saveToGallery = async (fileUri: string, _type: 'photo' | 'video'): Promise<string> => {
   try {
@@ -64,30 +62,29 @@ export const saveToGallery = async (fileUri: string, _type: 'photo' | 'video'): 
       throw new Error('Media library permission not granted');
     }
 
-    // Create asset in camera roll
+    // Save asset to system camera roll
     const asset = await MediaLibrary.createAssetAsync(fileUri);
-    if (!asset || !asset.id) {
-      throw new Error('Failed to create media asset');
-    }
-
-    // Try grouping into GuardCam album
-    try {
-      const album = await MediaLibrary.getAlbumAsync('GuardCam');
-      if (album === null || !album.id) {
-        await MediaLibrary.createAlbumAsync('GuardCam', asset.id, false);
-      } else {
-        await MediaLibrary.addAssetsToAlbumsAsync([asset.id], album.id, false);
+    if (asset && asset.id) {
+      try {
+        const album = await MediaLibrary.getAlbumAsync('GuardCam');
+        if (album === null || !album.id) {
+          await MediaLibrary.createAlbumAsync('GuardCam', asset.id, false);
+        } else {
+          await MediaLibrary.addAssetsToAlbumsAsync([asset.id], album.id, false);
+        }
+      } catch (albumErr) {
+        console.warn('[Storage] Album grouping fallback:', albumErr);
       }
-    } catch (albumErr) {
-      // Album grouping can fail on some iOS/Android devices without breaking saving to Photos
-      console.warn('[Storage] Saved to Photos library (album grouping optional):', albumErr);
     }
     
-    console.log('[Storage] ✅ Saved to gallery:', asset.uri);
-    return asset.uri;
+    // Always return fileUri (file://...) so React Native <Image /> renders it natively on iOS/Android
+    const targetUri = fileUri.startsWith('file://') || fileUri.startsWith('/') ? fileUri : (asset?.uri || fileUri);
+    console.log('[Storage] ✅ Saved asset to gallery, display URI:', targetUri);
+    return targetUri;
   } catch (error) {
     console.error('[Storage] Failed to save to gallery:', error);
-    throw error;
+    // Return original fileUri as fallback so app doesn't break
+    return fileUri;
   }
 };
 
