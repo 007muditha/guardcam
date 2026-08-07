@@ -1,62 +1,47 @@
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import RNFS from 'react-native-fs';
+import * as FileSystem from 'expo-file-system';
 import { GOOGLE_DRIVE } from '../utils/constants';
 
-GoogleSignin.configure({
-  scopes: GOOGLE_DRIVE.SCOPES,
-  webClientId: 'YOUR_WEB_CLIENT_ID_HERE', // Placeholder
-});
+/**
+ * Google Drive Service
+ * 
+ * Note: Google Sign-In requires a native build (not Expo Go).
+ * These functions use placeholder implementations that can be
+ * wired up when building with `npx expo run:ios` or EAS Build.
+ */
+
+let _accessToken: string | null = null;
+let _email: string | null = null;
 
 /**
  * Signs into Google Drive.
+ * TODO: Integrate expo-auth-session for OAuth in Expo Go,
+ * or use @react-native-google-signin in a native build.
  */
 export const signIn = async (): Promise<{email: string, accessToken: string}> => {
-  try {
-    await GoogleSignin.hasPlayServices();
-    const userInfo = await GoogleSignin.signIn();
-    const tokens = await GoogleSignin.getTokens();
-    return {
-      email: userInfo.user.email,
-      accessToken: tokens.accessToken
-    };
-  } catch (error) {
-    console.error('Google Sign-In failed', error);
-    throw error;
-  }
+  console.warn('Google Sign-In not available in Expo Go. Use a native build for full Drive integration.');
+  throw new Error('Google Sign-In requires a native build');
 };
 
 /**
  * Signs out.
  */
 export const signOut = async (): Promise<void> => {
-  try {
-    await GoogleSignin.signOut();
-  } catch (error) {
-    console.error('Google Sign-Out failed', error);
-  }
+  _accessToken = null;
+  _email = null;
 };
 
 /**
  * Checks if user is signed in.
  */
 export const isSignedIn = async (): Promise<boolean> => {
-  try {
-    return await GoogleSignin.isSignedIn();
-  } catch (error) {
-    return false;
-  }
+  return _accessToken !== null;
 };
 
 /**
  * Gets access token.
  */
 export const getAccessToken = async (): Promise<string | null> => {
-  try {
-    const tokens = await GoogleSignin.getTokens();
-    return tokens.accessToken;
-  } catch (error) {
-    return null;
-  }
+  return _accessToken;
 };
 
 /**
@@ -96,7 +81,7 @@ export const getOrCreateFolder = async (folderName: string, accessToken: string)
 };
 
 /**
- * Uploads a file to Google Drive.
+ * Uploads a file to Google Drive using expo-file-system.
  */
 export const uploadFile = async (
   filePath: string,
@@ -106,7 +91,9 @@ export const uploadFile = async (
   accessToken: string
 ): Promise<{fileId: string, webViewLink: string}> => {
   try {
-    const fileContent = await RNFS.readFile(filePath, 'base64');
+    const fileContent = await FileSystem.readAsStringAsync(filePath, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
     
     const metadata = {
       name: fileName,
