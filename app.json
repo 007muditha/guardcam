@@ -46,7 +46,8 @@
           "photosPermission": "GuardCam saves security footage to your photo library.",
           "savePhotosPermission": "GuardCam needs to save security photos and videos."
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }
