@@ -1,20 +1,21 @@
 import { RefObject } from 'react';
-import { Camera } from 'react-native-vision-camera';
+import { CameraView } from 'expo-camera';
 import { AppSettings, MotionEvent } from '../types';
 import { generateEventId } from '../utils/formatters';
 import { hasEnoughSpace, saveToGallery } from './storageService';
 import { uploadFile, getAccessToken } from './googleDriveService';
 
 /**
- * Captures a photo using the camera ref.
+ * Captures a photo using Expo CameraView ref.
  */
-export const capturePhoto = async (camera: RefObject<Camera>): Promise<string | null> => {
+export const capturePhoto = async (camera: RefObject<CameraView>): Promise<string | null> => {
   try {
     if (!camera.current) return null;
-    const photo = await camera.current.takePhoto({
-      qualityPrioritization: 'speed'
+    const photo = await camera.current.takePictureAsync({
+      quality: 0.8,
+      skipProcessing: true
     });
-    return photo.path;
+    return photo?.uri || null;
   } catch (error) {
     console.error('Failed to capture photo', error);
     return null;
@@ -22,37 +23,31 @@ export const capturePhoto = async (camera: RefObject<Camera>): Promise<string | 
 };
 
 /**
- * Starts video recording.
+ * Starts video recording using Expo CameraView ref.
  */
-export const startVideoRecording = async (camera: RefObject<Camera>, durationSec: number): Promise<void> => {
+export const startVideoRecording = async (camera: RefObject<CameraView>, durationSec: number): Promise<string | null> => {
   try {
-    if (!camera.current) return;
-    camera.current.startRecording({
-      onRecordingError: (error) => console.error('Recording error', error),
-      onRecordingFinished: (video) => console.log('Recording finished', video)
+    if (!camera.current) return null;
+    const videoPromise = camera.current.recordAsync({
+      maxDuration: durationSec
     });
-    
-    setTimeout(async () => {
-      if (camera.current) {
-        await camera.current.stopRecording();
-      }
-    }, durationSec * 1000);
+    const video = await videoPromise;
+    return video?.uri || null;
   } catch (error) {
     console.error('Failed to start video recording', error);
+    return null;
   }
 };
 
 /**
  * Stops video recording.
  */
-export const stopVideoRecording = async (camera: RefObject<Camera>): Promise<string | null> => {
+export const stopVideoRecording = async (camera: RefObject<CameraView>): Promise<void> => {
   try {
-    if (!camera.current) return null;
-    await camera.current.stopRecording();
-    return null; 
+    if (!camera.current) return;
+    camera.current.stopRecording();
   } catch (error) {
     console.error('Failed to stop video recording', error);
-    return null;
   }
 };
 
@@ -60,7 +55,7 @@ export const stopVideoRecording = async (camera: RefObject<Camera>): Promise<str
  * Orchestrates capturing photo/video, saving, and logging.
  */
 export const handleCapture = async (
-  camera: RefObject<Camera>, 
+  camera: RefObject<CameraView>, 
   settings: AppSettings, 
   onEvent: (event: MotionEvent) => Promise<void>
 ): Promise<void> => {
@@ -72,8 +67,9 @@ export const handleCapture = async (
     const photoUri = await capturePhoto(camera);
     
     // 2. If video enabled, record
+    let videoUri: string | null = null;
     if (settings.captureMode === 'video' || settings.captureMode === 'both') {
-      await startVideoRecording(camera, settings.videoDuration);
+      videoUri = await startVideoRecording(camera, settings.videoDuration);
     }
     
     let finalPhotoUri = photoUri;
@@ -114,14 +110,15 @@ export const handleCapture = async (
       }
     }
     
-    // 5 & 6. Log event only with no media (if no space/failed), or log with media
+    // 5. Log event with media status
     const event: MotionEvent = {
       id: eventId,
       timestamp,
       type: 'motion',
       hasPhoto: !!finalPhotoUri,
-      hasVideo: settings.captureMode === 'video' || settings.captureMode === 'both',
+      hasVideo: !!videoUri,
       photoUri: finalPhotoUri || undefined,
+      videoUri: videoUri || undefined,
       uploaded,
       uploadedAt
     };
