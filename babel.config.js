@@ -1,7 +1,9 @@
-module.exports = {
-  presets: ['module:@react-native/babel-preset'],
-  plugins: [
-    'react-native-worklets-core/plugin',
-    'react-native-reanimated/plugin', // Must be listed last
-  ],
+module.exports = function (api) {
+  api.cache(true);
+  return {
+    presets: ['babel-preset-expo'],
+    plugins: [
+      'react-native-reanimated/plugin', // Must be listed last
+    ],
+  };
 };
