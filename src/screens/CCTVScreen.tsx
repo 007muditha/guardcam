@@ -11,6 +11,7 @@ import { addEvent } from '../services/movementLogService';
 import { formatTime } from '../utils/formatters';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../utils/constants';
+import { requestMediaPermission } from '../services/storageService';
 
 const DEFAULT_SETTINGS: AppSettings = {
   sensitivity: 'medium',
@@ -102,6 +103,8 @@ export const CCTVScreen = () => {
       if (!permission?.granted) {
         await requestPermission();
       }
+      // Request media library permission upfront for saving captures
+      await requestMediaPermission();
       setState('preview');
 
       // Show preview for 3 seconds, then go stealth and start detection

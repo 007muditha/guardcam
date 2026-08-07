@@ -23,10 +23,29 @@ export const checkStorageSpace = async (): Promise<StorageStatus> => {
 };
 
 /**
+ * Requests media library permission. Returns true if granted.
+ */
+export const requestMediaPermission = async (): Promise<boolean> => {
+  const { status } = await MediaLibrary.requestPermissionsAsync();
+  if (status !== 'granted') {
+    console.warn('[Storage] Media library permission denied');
+    return false;
+  }
+  return true;
+};
+
+/**
  * Saves a file to the GuardCam album in gallery.
+ * Automatically requests permission if needed.
  */
 export const saveToGallery = async (fileUri: string, _type: 'photo' | 'video'): Promise<string> => {
   try {
+    // Ensure we have permission
+    const hasPermission = await requestMediaPermission();
+    if (!hasPermission) {
+      throw new Error('Media library permission not granted');
+    }
+
     const asset = await MediaLibrary.createAssetAsync(fileUri);
     const album = await MediaLibrary.getAlbumAsync('GuardCam');
     
@@ -36,9 +55,10 @@ export const saveToGallery = async (fileUri: string, _type: 'photo' | 'video'): 
       await MediaLibrary.addAssetsToAlbumsAsync([asset], album, false);
     }
     
+    console.log('[Storage] ✅ Saved to gallery:', asset.uri);
     return asset.uri;
   } catch (error) {
-    console.error('Failed to save to gallery', error);
+    console.error('[Storage] Failed to save to gallery', error);
     throw error;
   }
 };
