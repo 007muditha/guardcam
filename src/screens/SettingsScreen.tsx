@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 export const SettingsScreen = () => {
   const navigation = useNavigation();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -263,27 +264,73 @@ export const SettingsScreen = () => {
           </View>
         </View>
 
-        {/* About Section */}
+        {/* About & Legal Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>ℹ️ About</Text>
+          <Text style={styles.sectionTitle}>ℹ️ About & Legal</Text>
           <View style={styles.card}>
             <Text style={styles.label}>GuardCam v1.0.0</Text>
             <Text style={styles.hint}>
               Turn your phone into a smart security camera with motion detection.
-              {'\n\n'}
-              How it works:{'\n'}
-              • Tap START to begin monitoring{'\n'}
-              • Screen goes black (stealth mode){'\n'}
-              • Camera detects motion every 2 seconds{'\n'}
-              • Photos captured & saved automatically to Photos gallery{'\n'}
-              • Tap the black screen to show controls{'\n'}
-              • View events in the Movement Log
             </Text>
+            
+            <View style={styles.divider} />
+
+            <Pressable style={styles.legalBtn} onPress={() => setShowTermsModal(true)}>
+              <Text style={styles.legalBtnText}>📜 Terms of Service & Privacy Disclaimer</Text>
+              <Text style={styles.legalBtnArrow}>›</Text>
+            </Pressable>
           </View>
         </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Terms & Conditions Modal */}
+      <Modal visible={showTermsModal} animationType="slide" transparent={true}>
+        <View style={styles.termsModalOverlay}>
+          <SafeAreaView style={styles.termsModalContainer}>
+            <View style={styles.termsModalHeader}>
+              <Text style={styles.termsModalTitle}>Terms & Legal Disclaimer</Text>
+              <Pressable style={styles.termsCloseBtn} onPress={() => setShowTermsModal(false)}>
+                <Text style={styles.termsCloseText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.termsScroll} showsVerticalScrollIndicator={true}>
+              <Text style={styles.termsHeading}>1. Purpose & Intended Use</Text>
+              <Text style={styles.termsBody}>
+                GuardCam is designed as a security monitoring tool to assist users in detecting motion and capturing security footage. The software is provided on an "AS IS" and "AS AVAILABLE" basis.
+              </Text>
+
+              <Text style={styles.termsHeading}>2. User Responsibility & Compliance</Text>
+              <Text style={styles.termsBody}>
+                You, the user, are solely responsible for how you deploy and operate GuardCam. You agree to comply with all applicable local, state, national, and international laws, including audio/video recording consent, privacy, and surveillance laws in your jurisdiction.
+              </Text>
+
+              <Text style={styles.termsHeading}>3. Power & Battery Management</Text>
+              <Text style={styles.termsBody}>
+                Continuous camera operation and motion detection consume significant battery. For continuous security monitoring, it is strongly recommended to keep your device connected to a reliable power source and ensure adequate device ventilation to prevent overheating.
+              </Text>
+
+              <Text style={styles.termsHeading}>4. Storage & Cloud Sharing Safety</Text>
+              <Text style={styles.termsBody}>
+                When sharing Google Drive folders or using cloud storage integrations, you are solely responsible for managing folder permissions and access keys. Ensure you share folder access only with trusted parties. The developers do not store, access, or sell your private video/photo recordings.
+              </Text>
+
+              <Text style={styles.termsHeading}>5. Limitation of Liability</Text>
+              <Text style={styles.termsBody}>
+                Under no circumstances shall the developer or app distributors be liable for any missed motion events, loss of data, hardware malfunction, unauthorized access to your cloud storage, or legal disputes arising from your use of this application.
+              </Text>
+
+              <View style={{ height: 30 }} />
+            </ScrollView>
+
+            <Pressable style={styles.termsAcceptBtn} onPress={() => setShowTermsModal(false)}>
+              <Text style={styles.termsAcceptText}>I Understand & Agree</Text>
+            </Pressable>
+          </SafeAreaView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -369,7 +416,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: SPACING.sm + 2,
     alignItems: 'center',
-    justifyContent: 'center',
+    justify.content: 'center',
     minHeight: 40,
   },
   pillBtnActive: {
@@ -440,5 +487,83 @@ const styles = StyleSheet.create({
     color: COLORS.DANGER,
     fontWeight: 'bold',
     fontSize: 13,
+  },
+  legalBtn: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+  },
+  legalBtnText: {
+    color: COLORS.PRIMARY,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  legalBtnArrow: {
+    color: COLORS.PRIMARY,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  termsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'flex-end',
+  },
+  termsModalContainer: {
+    backgroundColor: COLORS.SURFACE,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    maxHeight: '85%',
+    borderWidth: 1,
+    borderColor: COLORS.BORDER,
+  },
+  termsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.BORDER,
+    marginBottom: SPACING.md,
+  },
+  termsModalTitle: {
+    color: COLORS.TEXT,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  termsCloseBtn: {
+    padding: SPACING.xs,
+  },
+  termsCloseText: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: 20,
+  },
+  termsScroll: {
+    paddingRight: SPACING.xs,
+  },
+  termsHeading: {
+    color: COLORS.PRIMARY,
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
+  termsBody: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  termsAcceptBtn: {
+    backgroundColor: COLORS.PRIMARY,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    marginTop: SPACING.md,
+  },
+  termsAcceptText: {
+    color: '#000',
+    fontWeight: 'bold',
+    fontSize: 15,
   },
 });
