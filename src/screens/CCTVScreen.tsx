@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, Easing, StatusBar } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { useKeepAwake } from 'react-native-keep-awake';
+import { View, Text, StyleSheet, Pressable, Animated, StatusBar } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useNavigation } from '@react-navigation/native';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { COLORS, SPACING, RADIUS } from '../utils/constants';
 
 export const CCTVScreen = () => {
   const navigation = useNavigation();
-  const { hasPermission, requestPermission } = useCameraPermission();
-  const [cameraPosition, setCameraPosition] = useState<'front' | 'back'>('back');
-  const device = useCameraDevice(cameraPosition);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [facing, setFacing] = useState<'front' | 'back'>('back');
   
   const [state, setState] = useState<'initializing' | 'preview' | 'stealth' | 'controls_visible'>('initializing');
   const [eventCount, setEventCount] = useState(0);
@@ -22,17 +21,16 @@ export const CCTVScreen = () => {
 
   const [showStealthIndicator, setShowStealthIndicator] = useState(true);
 
-  useKeepAwake();
-
   useEffect(() => {
+    activateKeepAwakeAsync();
+
     const init = async () => {
-      if (!hasPermission) {
+      if (!permission?.granted) {
         await requestPermission();
       }
       setState('preview');
       setTimeout(() => {
         setState('stealth');
-        // TODO: ScreenBrightness.setBrightness(0.01)
       }, 2000);
     };
     init();
@@ -45,7 +43,7 @@ export const CCTVScreen = () => {
     ).start();
 
     return () => {
-      // TODO: ScreenBrightness.setBrightness(originalBrightness)
+      deactivateKeepAwake();
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
   }, []);
@@ -79,7 +77,7 @@ export const CCTVScreen = () => {
   };
 
   const handleSwitchCamera = () => {
-    setCameraPosition(prev => prev === 'back' ? 'front' : 'back');
+    setFacing(prev => prev === 'back' ? 'front' : 'back');
   };
 
   const getElapsedTime = () => {
@@ -89,21 +87,27 @@ export const CCTVScreen = () => {
     return `${hours}h ${mins}m`;
   };
 
-  if (!hasPermission) return <View style={styles.blackBg} />;
-  if (device == null) return <View style={styles.blackBg} />;
+  if (!permission?.granted) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ color: COLORS.TEXT, textAlign: 'center', marginTop: 100 }}>
+          Camera permission needed
+        </Text>
+        <Pressable style={styles.switchBtn} onPress={requestPermission}>
+          <Text style={styles.btnText}>Grant Permission</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       {state === 'stealth' && <StatusBar hidden />}
       
-      <Camera
+      <CameraView
         style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={true}
-        photo={true}
-        video={true}
+        facing={facing}
       />
-      {/* TODO: Add frame processor for motion detection */}
       
       {(state === 'stealth' || state === 'controls_visible') && (
         <Pressable 
@@ -146,10 +150,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.BACKGROUND,
-  },
-  blackBg: {
-    flex: 1,
-    backgroundColor: '#000',
   },
   stealthOverlay: {
     ...StyleSheet.absoluteFillObject,
