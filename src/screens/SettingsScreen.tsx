@@ -197,19 +197,9 @@ export const SettingsScreen = () => {
             )}
 
             <View style={styles.divider} />
-            
-            <View style={styles.switchRow}>
-              <View style={styles.switchLabel}>
-                <Text style={styles.label}>Save to Phone Photos</Text>
-                <Text style={styles.hint}>Automatically add captured photos/videos to your Photos library album</Text>
-              </View>
-              <Switch
-                value={settings.saveToGallery !== false}
-                onValueChange={(val) => updateSetting('saveToGallery', val)}
-                trackColor={{ false: COLORS.SURFACE, true: COLORS.PRIMARY }}
-                thumbColor={settings.saveToGallery !== false ? '#fff' : COLORS.TEXT_DIM}
-              />
-            </View>
+            <Text style={styles.hint}>
+              📱 Photos & videos are saved automatically to your device Photos gallery in the "GuardCam" album.
+            </Text>
           </View>
         </View>
 
@@ -285,7 +275,7 @@ export const SettingsScreen = () => {
               • Tap START to begin monitoring{'\n'}
               • Screen goes black (stealth mode){'\n'}
               • Camera detects motion every 2 seconds{'\n'}
-              • Photos captured & saved per your settings{'\n'}
+              • Photos captured & saved automatically to Photos gallery{'\n'}
               • Tap the black screen to show controls{'\n'}
               • View events in the Movement Log
             </Text>
