@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { GOOGLE_DRIVE } from '../utils/constants';
 
 /**
@@ -14,8 +14,6 @@ let _email: string | null = null;
 
 /**
  * Signs into Google Drive.
- * TODO: Integrate expo-auth-session for OAuth in Expo Go,
- * or use @react-native-google-signin in a native build.
  */
 export const signIn = async (): Promise<{email: string, accessToken: string}> => {
   console.warn('Google Sign-In not available in Expo Go. Use a native build for full Drive integration.');
@@ -81,7 +79,7 @@ export const getOrCreateFolder = async (folderName: string, accessToken: string)
 };
 
 /**
- * Uploads a file to Google Drive using expo-file-system.
+ * Uploads a file to Google Drive using expo-file-system/legacy.
  */
 export const uploadFile = async (
   filePath: string,

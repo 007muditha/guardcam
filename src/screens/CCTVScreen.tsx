@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   cameraPosition: 'back',
   showStealthIndicator: true,
   videoDuration: DETECTION.VIDEO_DEFAULT_DURATION,
+  saveToGallery: true,
   googleDriveEnabled: false,
 };
 
@@ -26,7 +27,7 @@ export const CCTVScreen = () => {
   const navigation = useNavigation();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<'front' | 'back'>('back');
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<any>(null);
 
   const [state, setState] = useState<'initializing' | 'preview' | 'stealth' | 'controls_visible'>('initializing');
   const [eventCount, setEventCount] = useState(0);
@@ -39,7 +40,7 @@ export const CCTVScreen = () => {
   const controlsAnim = useRef(new Animated.Value(300)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const flashAnim = useRef(new Animated.Value(0)).current;
-  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const controlsTimeoutRef = useRef<any>(null);
 
   // Load settings from AsyncStorage
   useEffect(() => {
@@ -63,28 +64,21 @@ export const CCTVScreen = () => {
    * Triggers capture, saves event, and updates UI.
    */
   const onMotionDetected = useCallback(async (score: number) => {
-    // Prevent concurrent captures
     if (isCapturing.current) return;
     isCapturing.current = true;
 
     try {
       setMotionScore(score);
 
-      // Flash the screen briefly (green border flash for visual feedback)
       Animated.sequence([
         Animated.timing(flashAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
         Animated.timing(flashAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
       ]).start();
 
-      // Vibrate briefly
       Vibration.vibrate(200);
 
-      // Capture photo/video
       await handleCapture(cameraRef, settings, async (event: MotionEvent) => {
-        // Save to movement log
         await addEvent(event);
-
-        // Update UI
         setEventCount(prev => prev + 1);
         setLastDetection(formatTime(event.timestamp));
       });
@@ -103,25 +97,21 @@ export const CCTVScreen = () => {
       if (!permission?.granted) {
         await requestPermission();
       }
-      // Request media library permission upfront for saving captures
       await requestMediaPermission();
       setState('preview');
 
-      // Show preview for 3 seconds, then go stealth and start detection
       setTimeout(() => {
         setState('stealth');
-        // Start motion detection after entering stealth mode
         startMotionDetection(
           cameraRef,
           settings.sensitivity,
           onMotionDetected,
-          2000 // Check every 2 seconds
+          2000
         );
       }, 3000);
     };
     init();
 
-    // Pulse animation for stealth indicator
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.5, duration: 1000, useNativeDriver: true }),
@@ -136,7 +126,6 @@ export const CCTVScreen = () => {
     };
   }, []);
 
-  // Restart motion detection when sensitivity changes
   useEffect(() => {
     if (state === 'stealth' || state === 'controls_visible') {
       stopMotionDetection();
@@ -176,7 +165,7 @@ export const CCTVScreen = () => {
   const handleSwitchCamera = () => {
     const newFacing = facing === 'back' ? 'front' : 'back';
     setFacing(newFacing);
-    resetBaseline(); // Reset motion baseline when switching cameras
+    resetBaseline();
   };
 
   const getElapsedTime = () => {
@@ -210,7 +199,6 @@ export const CCTVScreen = () => {
         facing={facing}
       />
 
-      {/* Motion flash indicator */}
       <Animated.View
         style={[styles.motionFlash, { opacity: flashAnim }]}
         pointerEvents="none"
@@ -273,7 +261,6 @@ export const CCTVScreen = () => {
         </Animated.View>
       )}
 
-      {/* Preview mode indicator */}
       {state === 'preview' && (
         <View style={styles.previewBanner}>
           <Text style={styles.previewText}>📷 Initializing camera...</Text>

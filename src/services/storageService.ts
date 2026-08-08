@@ -1,9 +1,9 @@
 import * as MediaLibrary from 'expo-media-library';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { StorageStatus } from '../types';
 
 /**
- * Checks device storage space safely without triggering deprecation crashes.
+ * Checks device storage space safely.
  */
 export const checkStorageSpace = async (): Promise<StorageStatus> => {
   try {
@@ -70,7 +70,8 @@ export const saveToGallery = async (fileUri: string, _type: 'photo' | 'video'): 
         if (album === null || !album.id) {
           await MediaLibrary.createAlbumAsync('GuardCam', asset.id, false);
         } else {
-          await MediaLibrary.addAssetsToAlbumsAsync([asset.id], album.id, false);
+          // Note: Expo MediaLibrary uses singular addAssetsToAlbumAsync
+          await MediaLibrary.addAssetsToAlbumAsync([asset.id], album.id, false);
         }
       } catch (albumErr) {
         console.warn('[Storage] Album grouping fallback:', albumErr);

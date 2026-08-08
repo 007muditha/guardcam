@@ -34,7 +34,6 @@ let isAnalyzing = false;
  */
 const extractLuminanceSamples = (base64: string, sampleCount = 256): number[] => {
   const samples: number[] = [];
-  // Skip the first ~100 chars (JPEG/PNG header metadata) to get to actual image data
   const startOffset = Math.min(100, Math.floor(base64.length * 0.05));
   const usableLength = base64.length - startOffset;
   const step = Math.max(1, Math.floor(usableLength / sampleCount));
@@ -58,7 +57,6 @@ const computeDifference = (a: number[], b: number[]): number => {
     totalDiff += Math.abs(a[i] - b[i]);
   }
 
-  // Normalize: max possible diff per sample is ~64 (base64 charset range ~48-122)
   return totalDiff / (len * 64);
 };
 
@@ -66,10 +64,9 @@ const computeDifference = (a: number[], b: number[]): number => {
  * Takes a single snapshot and compares it against the previous frame.
  */
 export const analyzeFrame = async (
-  cameraRef: RefObject<CameraView>,
+  cameraRef: RefObject<any>,
   sensitivity: 'low' | 'medium' | 'high'
 ): Promise<{ motionDetected: boolean; score: number }> => {
-  // Prevent overlapping analysis
   if (isAnalyzing) {
     return { motionDetected: false, score: 0 };
   }
@@ -81,7 +78,6 @@ export const analyzeFrame = async (
       return { motionDetected: false, score: 0 };
     }
 
-    // Capture a low-quality snapshot with base64 data directly
     const photo = await cameraRef.current.takePictureAsync({
       quality: 0.1,
       base64: true,
@@ -92,22 +88,18 @@ export const analyzeFrame = async (
       return { motionDetected: false, score: 0 };
     }
 
-    // Extract luminance samples from the base64 data
     const currentSamples = extractLuminanceSamples(photo.base64);
 
     if (!previousSamples) {
-      // First frame — store as baseline
       previousSamples = currentSamples;
       console.log('[Motion] Baseline frame captured');
       return { motionDetected: false, score: 0 };
     }
 
-    // Compare frames
     const score = computeDifference(currentSamples, previousSamples);
     const threshold = SENSITIVITY_THRESHOLDS[sensitivity];
     const motionDetected = score > threshold;
 
-    // Update baseline
     previousSamples = currentSamples;
 
     if (motionDetected) {
@@ -132,7 +124,7 @@ export const analyzeFrame = async (
  * @param intervalMs - Milliseconds between checks (default 2500ms)
  */
 export const startMotionDetection = (
-  cameraRef: RefObject<CameraView>,
+  cameraRef: RefObject<any>,
   sensitivity: 'low' | 'medium' | 'high',
   onMotion: (score: number) => void,
   intervalMs: number = 2500
@@ -155,7 +147,6 @@ export const startMotionDetection = (
 
     if (motionDetected) {
       const now = Date.now();
-      // Respect cooldown to avoid spamming
       if (now - lastMotionTimestamp > DETECTION.COOLDOWN_MS) {
         lastMotionTimestamp = now;
         onMotion(score);

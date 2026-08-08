@@ -1,5 +1,4 @@
 import { RefObject } from 'react';
-import { CameraView } from 'expo-camera';
 import { AppSettings, MotionEvent } from '../types';
 import { generateEventId } from '../utils/formatters';
 import { hasEnoughSpace, saveToGallery } from './storageService';
@@ -8,7 +7,7 @@ import { uploadFile, getAccessToken } from './googleDriveService';
 /**
  * Captures a photo using Expo CameraView ref.
  */
-export const capturePhoto = async (camera: RefObject<CameraView>): Promise<string | null> => {
+export const capturePhoto = async (camera: RefObject<any>): Promise<string | null> => {
   try {
     if (!camera.current) return null;
     const photo = await camera.current.takePictureAsync({
@@ -24,7 +23,7 @@ export const capturePhoto = async (camera: RefObject<CameraView>): Promise<strin
 /**
  * Starts video recording using Expo CameraView ref.
  */
-export const startVideoRecording = async (camera: RefObject<CameraView>, durationSec: number): Promise<string | null> => {
+export const startVideoRecording = async (camera: RefObject<any>, durationSec: number): Promise<string | null> => {
   try {
     if (!camera.current) return null;
     const videoPromise = camera.current.recordAsync({
@@ -41,7 +40,7 @@ export const startVideoRecording = async (camera: RefObject<CameraView>, duratio
 /**
  * Stops video recording.
  */
-export const stopVideoRecording = async (camera: RefObject<CameraView>): Promise<void> => {
+export const stopVideoRecording = async (camera: RefObject<any>): Promise<void> => {
   try {
     if (!camera.current) return;
     camera.current.stopRecording();
@@ -54,7 +53,7 @@ export const stopVideoRecording = async (camera: RefObject<CameraView>): Promise
  * Orchestrates capturing photo/video, saving, and logging.
  */
 export const handleCapture = async (
-  camera: RefObject<CameraView>, 
+  camera: RefObject<any>, 
   settings: AppSettings, 
   onEvent: (event: MotionEvent) => Promise<void>
 ): Promise<void> => {
