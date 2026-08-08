@@ -175,31 +175,27 @@ export const SettingsScreen = () => {
           <View style={styles.card}>
             <Text style={styles.label}>Capture Mode</Text>
             <View style={styles.pillSpacer}>
-              {renderPillRow('captureMode', [
-                { value: 'photo', label: '📷 Photo' },
-                { value: 'video', label: '🎥 Video' },
-                { value: 'both', label: '📷+🎥' },
-              ])}
+              <View style={styles.pillGroup}>
+                <View style={[styles.pillBtn, styles.pillBtnActive]}>
+                  <Text style={[styles.pillText, styles.pillTextActive]}>📷 Photo (Base Model)</Text>
+                </View>
+              </View>
             </View>
 
-            {settings.captureMode !== 'photo' && (
-              <>
-                <View style={styles.divider} />
-                <Text style={styles.label}>Video Duration</Text>
-                <View style={styles.pillSpacer}>
-                  {renderPillRow('videoDuration', [
-                    { value: 10, label: '10s' },
-                    { value: 15, label: '15s' },
-                    { value: 30, label: '30s' },
-                    { value: 60, label: '60s' },
-                  ])}
-                </View>
-              </>
-            )}
+            <View style={styles.divider} />
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabel}>
+                <Text style={styles.label}>🎥 Video Clip Capture</Text>
+                <Text style={styles.hint}>Record short video clips on motion detection</Text>
+              </View>
+              <View style={styles.statusBadge}>
+                <Text style={styles.statusBadgeText}>👑 PRO (Coming Soon)</Text>
+              </View>
+            </View>
 
             <View style={styles.divider} />
             <Text style={styles.hint}>
-              📱 Photos & videos are saved automatically to your device Photos gallery in the "GuardCam" album.
+              📱 Captured photos are saved automatically to your device Photos gallery in the "GuardCam" album.
             </Text>
           </View>
         </View>
@@ -230,10 +226,10 @@ export const SettingsScreen = () => {
             <View style={styles.switchRow}>
               <View style={styles.switchLabel}>
                 <Text style={styles.label}>Cloud Backup</Text>
-                <Text style={styles.hint}>Requires native build (not Expo Go)</Text>
+                <Text style={styles.hint}>Sync footage to Google Drive</Text>
               </View>
               <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>Coming Soon</Text>
+                <Text style={styles.statusBadgeText}>👑 PRO (Coming Soon)</Text>
               </View>
             </View>
           </View>
@@ -416,7 +412,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: SPACING.sm + 2,
     alignItems: 'center',
-    justify.content: 'center',
+    justifyContent: 'center',
     minHeight: 40,
   },
   pillBtnActive: {
