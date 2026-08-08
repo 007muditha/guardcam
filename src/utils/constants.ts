@@ -55,3 +55,9 @@ export const GOOGLE_DRIVE = {
   QUERY_URL: 'https://www.googleapis.com/drive/v3/files',
   FOLDER_MIME_TYPE: 'application/vnd.google-apps.folder'
 };
+
+export const ADMOB = {
+  APP_ID_IOS: 'ca-app-pub-3016089881840447~6601316334',
+  BANNER_ID_IOS: 'ca-app-pub-3016089881840447/7722826310',
+  TEST_BANNER_ID: 'ca-app-pub-3940256099942544/6300978111',
+};

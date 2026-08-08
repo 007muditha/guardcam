@@ -5,6 +5,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { COLORS, SPACING, RADIUS } from '../utils/constants';
 import { getEvents } from '../services/movementLogService';
+import { AdBanner } from '../components/AdBanner';
 
 type RootStackParamList = {
   Home: undefined;
@@ -112,6 +113,8 @@ export const HomeScreen = () => {
           <Text style={styles.navLabel}>Gallery</Text>
         </Pressable>
       </View>
+
+      <AdBanner />
     </SafeAreaView>
   );
 };
@@ -123,8 +126,8 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginTop: SPACING.xl,
-    marginBottom: SPACING.xxl,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   title: {
     fontSize: 32,
@@ -200,7 +203,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     paddingHorizontal: SPACING.lg,
-    marginTop: SPACING.xxl,
+    marginTop: SPACING.xl,
   },
   statCard: {
     backgroundColor: COLORS.CARD,
@@ -229,7 +232,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.xl,
+    paddingBottom: SPACING.md,
     paddingTop: SPACING.md,
     borderTopWidth: 1,
     borderTopColor: COLORS.BORDER,
