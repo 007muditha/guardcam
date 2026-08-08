@@ -14,6 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.guardcam.app",
       "infoPlist": {
         "NSCameraUsageDescription": "GuardCam uses your camera to monitor for motion and security events.",
         "NSMicrophoneUsageDescription": "GuardCam records audio with security video clips.",
@@ -22,6 +23,7 @@
       }
     },
     "android": {
+      "package": "com.guardcam.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0A0A0F"
