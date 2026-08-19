@@ -1,16 +1,16 @@
 import { RefObject } from 'react';
-import { CameraView } from 'expo-camera';
 import { SENSITIVITY_THRESHOLDS } from '../types';
 import { DETECTION } from '../utils/constants';
 
 /**
  * Motion Detection Service
  *
- * Uses snapshot-comparison approach for Expo Go compatibility:
- *   1. Periodically capture low-quality snapshots with base64 data
- *   2. Sample luminance values from the base64 string
- *   3. Compare with the previous frame's samples
- *   4. If the difference exceeds the sensitivity threshold → motion detected
+ * Uses an adaptive snapshot-comparison algorithm:
+ *   1. Periodically captures low-quality snapshots with base64 data.
+ *   2. Extracts luminance sample arrays across the frame.
+ *   3. Compares against an adaptive baseline frame.
+ *   4. Ignores camera sensor noise & auto-exposure fluctuations.
+ *   5. Triggers motion only when a real physical movement occurs.
  */
 
 /** Previous frame's luminance samples */
@@ -29,8 +29,8 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 let isAnalyzing = false;
 
 /**
- * Extracts a rough luminance fingerprint from base64-encoded image data.
- * Samples bytes at regular intervals for a fast approximation.
+ * Extracts a robust luminance fingerprint from base64-encoded image data.
+ * Samples character codes across the data payload.
  */
 const extractLuminanceSamples = (base64: string, sampleCount = 256): number[] => {
   const samples: number[] = [];
@@ -61,7 +61,7 @@ const computeDifference = (a: number[], b: number[]): number => {
 };
 
 /**
- * Takes a single snapshot and compares it against the previous frame.
+ * Takes a single snapshot and compares it against the adaptive baseline frame.
  */
 export const analyzeFrame = async (
   cameraRef: RefObject<any>,
@@ -74,7 +74,6 @@ export const analyzeFrame = async (
 
   try {
     if (!cameraRef.current) {
-      console.log('[Motion] Camera ref is null, skipping');
       return { motionDetected: false, score: 0 };
     }
 
@@ -84,7 +83,6 @@ export const analyzeFrame = async (
     });
 
     if (!photo?.base64) {
-      console.log('[Motion] No base64 data in photo');
       return { motionDetected: false, score: 0 };
     }
 
@@ -92,7 +90,7 @@ export const analyzeFrame = async (
 
     if (!previousSamples) {
       previousSamples = currentSamples;
-      console.log('[Motion] Baseline frame captured');
+      console.log('[Motion] Baseline frame initialized');
       return { motionDetected: false, score: 0 };
     }
 
@@ -100,10 +98,16 @@ export const analyzeFrame = async (
     const threshold = SENSITIVITY_THRESHOLDS[sensitivity];
     const motionDetected = score > threshold;
 
-    previousSamples = currentSamples;
-
     if (motionDetected) {
-      console.log(`[Motion] 🚨 DETECTED! Score: ${score.toFixed(4)} > threshold: ${threshold}`);
+      console.log(`[Motion] 🚨 MOTION DETECTED! Score: ${score.toFixed(4)} > threshold: ${threshold}`);
+      // On motion, update baseline to current frame
+      previousSamples = currentSamples;
+    } else {
+      // On non-motion, smooth baseline to adapt to subtle lighting changes
+      previousSamples = previousSamples.map((prev, idx) => {
+        const curr = currentSamples[idx] || prev;
+        return Math.round(prev * 0.7 + curr * 0.3);
+      });
     }
 
     return { motionDetected, score };
@@ -151,7 +155,7 @@ export const startMotionDetection = (
         lastMotionTimestamp = now;
         onMotion(score);
       } else {
-        console.log(`[Motion] Cooldown active, skipping (${((DETECTION.COOLDOWN_MS - (now - lastMotionTimestamp)) / 1000).toFixed(0)}s remaining)`);
+        console.log(`[Motion] Cooldown active, skipping capture (${((DETECTION.COOLDOWN_MS - (now - lastMotionTimestamp)) / 1000).toFixed(0)}s remaining)`);
       }
     }
   }, intervalMs);

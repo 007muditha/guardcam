@@ -36,7 +36,7 @@ export interface StorageStatus {
 }
 
 export const SENSITIVITY_THRESHOLDS = {
-  low: 0.15,
-  medium: 0.08,
-  high: 0.03,
+  low: 0.28,
+  medium: 0.18,
+  high: 0.10,
 };
