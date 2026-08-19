@@ -36,11 +36,11 @@ export interface StorageStatus {
 }
 
 // Calibrated for v5.1 instant detection (static noise floor: 0.055 - 0.062)
-// Static scene:  0.055 - 0.062 (always below 0.072 -> 0 false positives!)
-// Normal motion: 0.075 - 0.120+ (triggers photo capture!)
-// Big motion:    0.150 - 0.500+ (triggers photo capture!)
+// Static scene:  0.055 - 0.062
+// Normal motion: 0.075 - 0.120+
+// High sensitivity threshold set to 0.05 per user request
 export const SENSITIVITY_THRESHOLDS = {
-  low: 0.10,      // Requires moderate/large motion
-  medium: 0.072,  // Normal sensitivity (detects hand wave / walking)
-  high: 0.065,    // Very sensitive (detects slight movement)
+  low: 0.10,
+  medium: 0.072,
+  high: 0.05,
 };
