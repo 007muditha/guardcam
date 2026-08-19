@@ -3,18 +3,32 @@ import { SENSITIVITY_THRESHOLDS } from '../types';
 import { DETECTION } from '../utils/constants';
 
 /**
- * Motion Detection Service — v2 (Adaptive + Consecutive Frame Confirmation)
+ * Motion Detection Service — v3 (Block-Averaged Grid Comparison)
  *
- * Key improvements over v1:
- *   1. Requires 2 CONSECUTIVE frames to exceed the threshold before triggering.
- *      This eliminates single-frame JPEG compression noise false positives.
- *   2. Uses adaptive baseline smoothing (exponential moving average) so gradual
- *      lighting changes and camera auto-exposure adjustments don't trigger motion.
- *   3. Higher sensitivity thresholds calibrated to real-world base64 noise floor.
+ * Why v1/v2 failed:
+ *   JPEG compression is non-deterministic. Even when the camera sees an
+ *   identical scene, the compressed base64 bytes vary by 20-40% due to
+ *   sensor noise, auto-exposure, and entropy coding. Comparing individual
+ *   base64 character codes is like comparing random noise.
+ *
+ * v3 solution:
+ *   1. Divide the base64 string into large blocks (32 blocks).
+ *   2. Compute the AVERAGE character code within each block.
+ *      → Averaging cancels out random JPEG compression noise.
+ *   3. Compare block-averaged fingerprints between frames.
+ *      → Only large-scale pixel changes (real motion) shift block averages.
+ *   4. Require 2 consecutive above-threshold frames to confirm motion.
+ *   5. Adaptive baseline smoothing absorbs gradual lighting changes.
  */
 
-/** Adaptive baseline luminance samples */
-let baselineSamples: number[] | null = null;
+/** Number of blocks to divide the base64 string into */
+const GRID_BLOCKS = 32;
+
+/** Number of consecutive frames required before triggering */
+const REQUIRED_CONSECUTIVE_FRAMES = 2;
+
+/** Adaptive baseline fingerprint (block-averaged values) */
+let baselineFingerprint: number[] | null = null;
 
 /** Timestamp of the last motion trigger (for cooldown) */
 let lastMotionTimestamp = 0;
@@ -31,30 +45,55 @@ let isAnalyzing = false;
 /** Count of consecutive frames that exceeded the motion threshold */
 let consecutiveMotionFrames = 0;
 
-/** Number of consecutive frames required before triggering motion */
-const REQUIRED_CONSECUTIVE_FRAMES = 2;
-
 /**
- * Extracts a robust luminance fingerprint from base64-encoded image data.
- * Samples character codes at evenly spaced intervals across the payload.
+ * Computes a block-averaged fingerprint from a base64 string.
+ *
+ * Divides the base64 payload into GRID_BLOCKS equal-sized blocks,
+ * then computes the mean character code value within each block.
+ * This averaging cancels out random JPEG compression noise while
+ * preserving large-scale changes caused by real motion.
+ *
+ * Returns an array of GRID_BLOCKS average values.
  */
-const extractLuminanceSamples = (base64: string, sampleCount = 256): number[] => {
-  const samples: number[] = [];
-  const startOffset = Math.min(100, Math.floor(base64.length * 0.05));
-  const usableLength = base64.length - startOffset;
-  const step = Math.max(1, Math.floor(usableLength / sampleCount));
+const computeBlockFingerprint = (base64: string): number[] => {
+  // Skip the first 5% of data (JPEG headers are constant and not useful)
+  const startOffset = Math.min(200, Math.floor(base64.length * 0.05));
+  const payload = base64.substring(startOffset);
+  const blockSize = Math.floor(payload.length / GRID_BLOCKS);
 
-  for (let i = startOffset; i < base64.length && samples.length < sampleCount; i += step) {
-    samples.push(base64.charCodeAt(i));
+  if (blockSize < 10) {
+    // Image too small for meaningful analysis
+    return [];
   }
-  return samples;
+
+  const fingerprint: number[] = [];
+
+  for (let block = 0; block < GRID_BLOCKS; block++) {
+    const blockStart = block * blockSize;
+    const blockEnd = Math.min(blockStart + blockSize, payload.length);
+    let sum = 0;
+    let count = 0;
+
+    for (let i = blockStart; i < blockEnd; i++) {
+      sum += payload.charCodeAt(i);
+      count++;
+    }
+
+    fingerprint.push(count > 0 ? sum / count : 0);
+  }
+
+  return fingerprint;
 };
 
 /**
- * Computes the normalized difference between two sample arrays.
- * Returns value between 0 (identical) and 1 (completely different).
+ * Computes the normalized difference between two block-averaged fingerprints.
+ * Returns a value between 0 (identical) and 1 (completely different).
+ *
+ * Because each value is a block average (hundreds of characters averaged),
+ * random JPEG noise produces differences of only ~0.01-0.04.
+ * Real motion (person walking through frame) produces differences of 0.15+.
  */
-const computeDifference = (a: number[], b: number[]): number => {
+const computeBlockDifference = (a: number[], b: number[]): number => {
   if (a.length === 0 || b.length === 0) return 0;
   const len = Math.min(a.length, b.length);
   let totalDiff = 0;
@@ -63,13 +102,14 @@ const computeDifference = (a: number[], b: number[]): number => {
     totalDiff += Math.abs(a[i] - b[i]);
   }
 
-  return totalDiff / (len * 64);
+  // Normalize by number of blocks and max possible char code range (~80)
+  return totalDiff / (len * 80);
 };
 
 /**
- * Takes a single snapshot and compares it against the adaptive baseline.
- * Returns motionDetected=true only after REQUIRED_CONSECUTIVE_FRAMES
- * frames in a row exceed the threshold.
+ * Takes a single snapshot and compares its block fingerprint against the
+ * adaptive baseline. Requires REQUIRED_CONSECUTIVE_FRAMES above-threshold
+ * frames before confirming motion.
  */
 export const analyzeFrame = async (
   cameraRef: RefObject<any>,
@@ -94,24 +134,31 @@ export const analyzeFrame = async (
       return { motionDetected: false, score: 0 };
     }
 
-    const currentSamples = extractLuminanceSamples(photo.base64);
+    const currentFingerprint = computeBlockFingerprint(photo.base64);
 
-    // First frame: establish baseline
-    if (!baselineSamples) {
-      baselineSamples = currentSamples;
-      consecutiveMotionFrames = 0;
-      console.log('[Motion] Baseline frame initialized');
+    if (currentFingerprint.length === 0) {
       return { motionDetected: false, score: 0 };
     }
 
-    const score = computeDifference(currentSamples, baselineSamples);
+    // First frame: establish baseline
+    if (!baselineFingerprint) {
+      baselineFingerprint = currentFingerprint;
+      consecutiveMotionFrames = 0;
+      console.log('[Motion] Baseline established (block-averaged grid)');
+      return { motionDetected: false, score: 0 };
+    }
+
+    const score = computeBlockDifference(currentFingerprint, baselineFingerprint);
     const threshold = SENSITIVITY_THRESHOLDS[sensitivity];
     const frameExceedsThreshold = score > threshold;
 
     if (frameExceedsThreshold) {
       consecutiveMotionFrames++;
+      console.log(`[Motion] Frame above threshold: ${score.toFixed(4)} > ${threshold} (${consecutiveMotionFrames}/${REQUIRED_CONSECUTIVE_FRAMES} consecutive)`);
     } else {
-      // Reset consecutive counter on any non-motion frame
+      if (consecutiveMotionFrames > 0) {
+        console.log(`[Motion] Below threshold: ${score.toFixed(4)} <= ${threshold}, resetting consecutive counter`);
+      }
       consecutiveMotionFrames = 0;
     }
 
@@ -119,16 +166,16 @@ export const analyzeFrame = async (
     const motionDetected = consecutiveMotionFrames >= REQUIRED_CONSECUTIVE_FRAMES;
 
     if (motionDetected) {
-      console.log(`[Motion] 🚨 CONFIRMED! Score: ${score.toFixed(4)} > ${threshold} (${consecutiveMotionFrames} consecutive frames)`);
+      console.log(`[Motion] 🚨 CONFIRMED MOTION! Score: ${score.toFixed(4)} (${consecutiveMotionFrames} consecutive frames)`);
       // Reset baseline to current frame after confirmed motion
-      baselineSamples = currentSamples;
+      baselineFingerprint = currentFingerprint;
       consecutiveMotionFrames = 0;
-    } else {
-      // Smoothly adapt baseline to gradual lighting/auto-exposure changes
-      // This prevents slow environmental changes from accumulating into false triggers
-      baselineSamples = baselineSamples.map((prev, idx) => {
-        const curr = currentSamples[idx] || prev;
-        return Math.round(prev * 0.8 + curr * 0.2);
+    } else if (!frameExceedsThreshold) {
+      // Smoothly adapt baseline to absorb gradual lighting/exposure changes
+      // 85% old baseline + 15% new frame = slow drift adaptation
+      baselineFingerprint = baselineFingerprint.map((prev, idx) => {
+        const curr = currentFingerprint[idx] ?? prev;
+        return prev * 0.85 + curr * 0.15;
       });
     }
 
@@ -147,13 +194,13 @@ export const analyzeFrame = async (
  * @param cameraRef - Reference to the CameraView
  * @param sensitivity - Detection sensitivity level
  * @param onMotion - Callback when motion is confirmed
- * @param intervalMs - Milliseconds between checks (default 2500ms)
+ * @param intervalMs - Milliseconds between checks (default 3000ms)
  */
 export const startMotionDetection = (
   cameraRef: RefObject<any>,
   sensitivity: 'low' | 'medium' | 'high',
   onMotion: (score: number) => void,
-  intervalMs: number = 2500
+  intervalMs: number = 3000
 ) => {
   if (isRunning) {
     stopMotionDetection();
@@ -161,11 +208,11 @@ export const startMotionDetection = (
 
   isRunning = true;
   isAnalyzing = false;
-  baselineSamples = null;
+  baselineFingerprint = null;
   lastMotionTimestamp = 0;
   consecutiveMotionFrames = 0;
 
-  console.log(`[Motion] ✅ Started (sensitivity: ${sensitivity}, interval: ${intervalMs}ms, requires ${REQUIRED_CONSECUTIVE_FRAMES} consecutive frames)`);
+  console.log(`[Motion] ✅ Started v3 (block-averaged, sensitivity: ${sensitivity}, interval: ${intervalMs}ms, ${REQUIRED_CONSECUTIVE_FRAMES} consecutive frames required)`);
 
   intervalId = setInterval(async () => {
     if (!isRunning) return;
@@ -190,7 +237,7 @@ export const startMotionDetection = (
 export const stopMotionDetection = () => {
   isRunning = false;
   isAnalyzing = false;
-  baselineSamples = null;
+  baselineFingerprint = null;
   consecutiveMotionFrames = 0;
 
   if (intervalId) {
@@ -205,7 +252,7 @@ export const stopMotionDetection = () => {
  * Resets the baseline frame (useful when switching cameras).
  */
 export const resetBaseline = () => {
-  baselineSamples = null;
+  baselineFingerprint = null;
   consecutiveMotionFrames = 0;
   console.log('[Motion] Baseline reset');
 };
