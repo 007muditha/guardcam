@@ -35,11 +35,12 @@ export interface StorageStatus {
   freeBytes: number;
 }
 
-// Calibrated for block-averaged grid comparison (v3)
-// JPEG noise floor with block averaging: ~0.01-0.04
-// Real motion (person walking through frame): 0.10+
+// Calibrated for block-averaged grid comparison (v3.1)
+// With 48 blocks and normalization divisor of 30:
+//   JPEG noise floor: ~0.01-0.04
+//   Real motion:      ~0.08-0.25+
 export const SENSITIVITY_THRESHOLDS = {
-  low: 0.20,     // Only large/obvious motion (person walking close)
-  medium: 0.12,  // Moderate motion (person crossing the room)
-  high: 0.08,    // Sensitive (detects subtle movement at distance)
+  low: 0.12,     // Only large/obvious motion
+  medium: 0.07,  // Moderate motion (person crossing room)
+  high: 0.045,   // Sensitive (detects subtle movement)
 };
