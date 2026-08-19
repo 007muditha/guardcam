@@ -3,50 +3,33 @@ import { SENSITIVITY_THRESHOLDS } from '../types';
 import { DETECTION } from '../utils/constants';
 
 /**
- * Motion Detection Service — v3.1 (Balanced Block-Averaged Comparison)
- *
- * Uses block-averaged fingerprints with tuned block count and normalization
- * to correctly distinguish JPEG noise from real motion.
- *
- * Key parameters:
- *   - 48 blocks: Fine enough to detect localized motion, large enough
- *     to smooth out per-character JPEG noise.
- *   - Normalization by 30 (empirical range of block-average shifts):
- *     JPEG noise shifts block averages by ~1-3, real motion by 5-15+.
- *   - 2 consecutive frames required: eliminates any remaining noise spikes.
- *   - Adaptive baseline smoothing: absorbs gradual lighting drift.
+ * Motion Detection Service — v3.2 (Debug + Block-Averaged)
  */
 
-/** Number of blocks to divide the base64 string into */
 const GRID_BLOCKS = 48;
-
-/** Number of consecutive frames required before triggering */
 const REQUIRED_CONSECUTIVE_FRAMES = 2;
 
-/** Adaptive baseline fingerprint */
 let baselineFingerprint: number[] | null = null;
-
-/** Timestamp of the last motion trigger (for cooldown) */
 let lastMotionTimestamp = 0;
-
-/** Whether detection is currently running */
 let isRunning = false;
-
-/** The interval timer ID */
 let intervalId: ReturnType<typeof setInterval> | null = null;
-
-/** Whether a frame is currently being analyzed */
 let isAnalyzing = false;
-
-/** Count of consecutive frames that exceeded the threshold */
 let consecutiveMotionFrames = 0;
 
-/**
- * Computes a block-averaged fingerprint from a base64 string.
- * Each block's value is the mean character code of all characters in that block.
- */
+/** Latest score for debug display */
+let latestScore = 0;
+let frameCount = 0;
+
+/** Get latest debug info */
+export const getDebugInfo = () => ({
+  score: latestScore,
+  frameCount,
+  isRunning,
+  hasBaseline: baselineFingerprint !== null,
+  consecutiveFrames: consecutiveMotionFrames,
+});
+
 const computeBlockFingerprint = (base64: string): number[] => {
-  // Skip JPEG header region (~5%)
   const startOffset = Math.min(200, Math.floor(base64.length * 0.05));
   const payload = base64.substring(startOffset);
   const blockSize = Math.floor(payload.length / GRID_BLOCKS);
@@ -72,14 +55,6 @@ const computeBlockFingerprint = (base64: string): number[] => {
   return fingerprint;
 };
 
-/**
- * Computes the normalized difference between two block-averaged fingerprints.
- *
- * With 48 blocks:
- *   - JPEG noise alone:    block averages shift by ~1-3  → score ~0.01-0.04
- *   - Real motion:         block averages shift by ~5-15 → score ~0.08-0.25+
- *   - Camera moved wildly: block averages shift by ~15+  → score ~0.30+
- */
 const computeBlockDifference = (a: number[], b: number[]): number => {
   if (a.length === 0 || b.length === 0) return 0;
   const len = Math.min(a.length, b.length);
@@ -89,58 +64,64 @@ const computeBlockDifference = (a: number[], b: number[]): number => {
     totalDiff += Math.abs(a[i] - b[i]);
   }
 
-  // Normalize by block count and empirical shift range (30)
-  // This maps JPEG noise to ~0.01-0.04 and real motion to ~0.08+
   return totalDiff / (len * 30);
 };
 
-/**
- * Analyzes a single frame against the adaptive baseline.
- */
 export const analyzeFrame = async (
   cameraRef: RefObject<any>,
   sensitivity: 'low' | 'medium' | 'high'
 ): Promise<{ motionDetected: boolean; score: number }> => {
   if (isAnalyzing) {
-    return { motionDetected: false, score: 0 };
+    console.log('[Motion] ⏳ Still analyzing previous frame, skipping');
+    return { motionDetected: false, score: latestScore };
   }
   isAnalyzing = true;
 
   try {
     if (!cameraRef.current) {
+      console.log('[Motion] ❌ Camera ref is NULL');
       return { motionDetected: false, score: 0 };
     }
 
+    console.log('[Motion] 📸 Taking snapshot...');
     const photo = await cameraRef.current.takePictureAsync({
       quality: 0.1,
       base64: true,
     });
 
     if (!photo?.base64) {
+      console.log('[Motion] ❌ No base64 data returned from camera');
       return { motionDetected: false, score: 0 };
     }
+
+    console.log(`[Motion] 📊 Photo base64 length: ${photo.base64.length}`);
 
     const currentFingerprint = computeBlockFingerprint(photo.base64);
 
     if (currentFingerprint.length === 0) {
+      console.log('[Motion] ❌ Fingerprint is empty (image too small)');
       return { motionDetected: false, score: 0 };
     }
 
-    // First frame: establish baseline
+    frameCount++;
+
     if (!baselineFingerprint) {
       baselineFingerprint = currentFingerprint;
       consecutiveMotionFrames = 0;
-      console.log('[Motion] ✅ Baseline established');
+      console.log(`[Motion] ✅ Baseline set (frame #${frameCount}, ${currentFingerprint.length} blocks)`);
       return { motionDetected: false, score: 0 };
     }
 
     const score = computeBlockDifference(currentFingerprint, baselineFingerprint);
+    latestScore = score;
     const threshold = SENSITIVITY_THRESHOLDS[sensitivity];
     const frameExceedsThreshold = score > threshold;
 
+    // LOG EVERY FRAME for debugging
+    console.log(`[Motion] Frame #${frameCount} | Score: ${score.toFixed(4)} | Threshold: ${threshold} | ${frameExceedsThreshold ? '⚠️ ABOVE' : '✅ below'} | Consecutive: ${consecutiveMotionFrames}`);
+
     if (frameExceedsThreshold) {
       consecutiveMotionFrames++;
-      console.log(`[Motion] ⚠️ Above threshold: score=${score.toFixed(4)} > ${threshold} (${consecutiveMotionFrames}/${REQUIRED_CONSECUTIVE_FRAMES})`);
     } else {
       consecutiveMotionFrames = 0;
     }
@@ -148,11 +129,10 @@ export const analyzeFrame = async (
     const motionDetected = consecutiveMotionFrames >= REQUIRED_CONSECUTIVE_FRAMES;
 
     if (motionDetected) {
-      console.log(`[Motion] 🚨 MOTION CONFIRMED! score=${score.toFixed(4)}`);
+      console.log(`[Motion] 🚨🚨🚨 MOTION CONFIRMED! Score: ${score.toFixed(4)}`);
       baselineFingerprint = currentFingerprint;
       consecutiveMotionFrames = 0;
     } else if (!frameExceedsThreshold) {
-      // Slowly adapt baseline to gradual lighting changes
       baselineFingerprint = baselineFingerprint.map((prev, idx) => {
         const curr = currentFingerprint[idx] ?? prev;
         return prev * 0.85 + curr * 0.15;
@@ -161,16 +141,13 @@ export const analyzeFrame = async (
 
     return { motionDetected, score };
   } catch (error: any) {
-    console.warn('[Motion] Analysis error:', error?.message || error);
+    console.error('[Motion] ❌ ERROR:', error?.message || error);
     return { motionDetected: false, score: 0 };
   } finally {
     isAnalyzing = false;
   }
 };
 
-/**
- * Starts continuous motion detection.
- */
 export const startMotionDetection = (
   cameraRef: RefObject<any>,
   sensitivity: 'low' | 'medium' | 'high',
@@ -186,8 +163,11 @@ export const startMotionDetection = (
   baselineFingerprint = null;
   lastMotionTimestamp = 0;
   consecutiveMotionFrames = 0;
+  frameCount = 0;
+  latestScore = 0;
 
-  console.log(`[Motion] ✅ Started v3.1 (${GRID_BLOCKS} blocks, sensitivity: ${sensitivity}, interval: ${intervalMs}ms)`);
+  console.log(`[Motion] ✅ STARTED v3.2 (sensitivity: ${sensitivity}, interval: ${intervalMs}ms)`);
+  console.log(`[Motion] Thresholds: low=${SENSITIVITY_THRESHOLDS.low}, medium=${SENSITIVITY_THRESHOLDS.medium}, high=${SENSITIVITY_THRESHOLDS.high}`);
 
   intervalId = setInterval(async () => {
     if (!isRunning) return;
@@ -198,6 +178,7 @@ export const startMotionDetection = (
       const now = Date.now();
       if (now - lastMotionTimestamp > DETECTION.COOLDOWN_MS) {
         lastMotionTimestamp = now;
+        console.log(`[Motion] 📷 Triggering capture callback!`);
         onMotion(score);
       } else {
         console.log(`[Motion] Cooldown (${((DETECTION.COOLDOWN_MS - (now - lastMotionTimestamp)) / 1000).toFixed(0)}s remaining)`);
@@ -206,9 +187,6 @@ export const startMotionDetection = (
   }, intervalMs);
 };
 
-/**
- * Stops continuous motion detection.
- */
 export const stopMotionDetection = () => {
   isRunning = false;
   isAnalyzing = false;
@@ -223,9 +201,6 @@ export const stopMotionDetection = () => {
   console.log('[Motion] ⏹ Stopped');
 };
 
-/**
- * Resets the baseline frame.
- */
 export const resetBaseline = () => {
   baselineFingerprint = null;
   consecutiveMotionFrames = 0;

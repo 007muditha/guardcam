@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { COLORS, SPACING, RADIUS, DETECTION } from '../utils/constants';
 import { AppSettings, MotionEvent } from '../types';
-import { startMotionDetection, stopMotionDetection, resetBaseline } from '../services/motionDetectionService';
+import { startMotionDetection, stopMotionDetection, resetBaseline, getDebugInfo } from '../services/motionDetectionService';
 import { handleCapture } from '../services/captureService';
 import { addEvent } from '../services/movementLogService';
 import { formatTime } from '../utils/formatters';
@@ -33,6 +33,7 @@ export const CCTVScreen = () => {
   const [eventCount, setEventCount] = useState(0);
   const [lastDetection, setLastDetection] = useState<string | null>(null);
   const [motionScore, setMotionScore] = useState(0);
+  const [debugText, setDebugText] = useState('Waiting...');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const sessionStartTime = useRef(Date.now());
   const isCapturing = useRef(false);
@@ -117,9 +118,16 @@ export const CCTVScreen = () => {
       ])
     ).start();
 
+    // Debug: update live score display every 1.5s
+    const debugInterval = setInterval(() => {
+      const info = getDebugInfo();
+      setDebugText(`Score: ${info.score.toFixed(4)} | Frames: ${info.frameCount} | Running: ${info.isRunning} | Baseline: ${info.hasBaseline}`);
+    }, 1500);
+
     return () => {
       deactivateKeepAwake();
       stopMotionDetection();
+      clearInterval(debugInterval);
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
   }, []);
@@ -215,6 +223,10 @@ export const CCTVScreen = () => {
               )}
             </View>
           )}
+          {/* Debug: Live motion score display */}
+          <View style={styles.debugBar}>
+            <Text style={styles.debugText}>{debugText}</Text>
+          </View>
         </Pressable>
       )}
 
@@ -420,5 +432,21 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     fontSize: 14,
     marginTop: 4,
+  },
+  debugBar: {
+    position: 'absolute',
+    bottom: 20,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  debugText: {
+    color: '#00FF88',
+    fontSize: 10,
+    fontFamily: 'monospace',
+    textAlign: 'center',
   },
 });
