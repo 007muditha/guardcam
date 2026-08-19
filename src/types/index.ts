@@ -35,11 +35,10 @@ export interface StorageStatus {
   freeBytes: number;
 }
 
-// Calibrated for v4 thumbnail comparison (16x12 pixel thumbnails)
-// At 16x12, sensor noise is eliminated by downscaling.
-// Static scene: ~0.01-0.05 | Real motion: ~0.15-0.60+
+// Calibrated for v5 sequential frame-to-frame comparison
+// Static scene: ~0.01 - 0.04 | Real motion: ~0.15 - 0.50+
 export const SENSITIVITY_THRESHOLDS = {
-  low: 0.20,     // Only large/obvious motion
-  medium: 0.12,  // Moderate motion (person crossing room)
-  high: 0.07,    // Sensitive (detects subtle movement)
+  low: 0.15,     // Only large/obvious motion
+  medium: 0.08,  // Moderate motion (person crossing room)
+  high: 0.045,   // Sensitive (detects subtle movement)
 };

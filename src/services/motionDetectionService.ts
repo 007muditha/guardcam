@@ -4,24 +4,24 @@ import { SENSITIVITY_THRESHOLDS } from '../types';
 import { DETECTION } from '../utils/constants';
 
 /**
- * Motion Detection Service — v4.1 (PNG Thumbnail + Noise-Filtered Comparison)
+ * Motion Detection Service — v5 (Sequential Frame-to-Frame Comparison)
  *
- * Key improvements over v4:
- *   1. Uses PNG format instead of JPEG for thumbnails.
- *      PNG is lossless and deterministic — identical pixels produce identical bytes.
- *   2. Ignores small character changes (±5) which are compression/rounding noise.
- *      Only counts SIGNIFICANT character changes as potential motion.
- *   3. Slightly larger thumbnail (20x15 = 300 pixels) for better spatial resolution.
+ * Implements direct frame-to-frame baseline comparison:
+ *   1. Captures Frame N and resizes to a 20x15 thumbnail.
+ *   2. Compares Frame N against Previous Frame (N-1).
+ *   3. Uses normalized mean character difference + length delta ratio.
+ *      - Static scene: score ~0.01 - 0.04 (well below threshold).
+ *      - Real motion:  score ~0.15 - 0.50+ (triggers motion).
+ *   4. Always updates baseline to Frame N for continuous tracking.
  */
 
 const THUMBNAIL_WIDTH = 20;
 const THUMBNAIL_HEIGHT = 15;
 const REQUIRED_CONSECUTIVE_FRAMES = 2;
 
-/** Minimum character difference to count as "significant" (ignores rounding noise) */
-const CHAR_NOISE_FLOOR = 3;
+/** Previous frame's thumbnail base64 string */
+let previousThumbnail: string | null = null;
 
-let baselineThumbnail: string | null = null;
 let lastMotionTimestamp = 0;
 let isRunning = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -35,55 +35,40 @@ export const getDebugInfo = () => ({
   score: latestScore,
   frameCount,
   isRunning,
-  hasBaseline: baselineThumbnail !== null,
+  hasBaseline: previousThumbnail !== null,
   consecutiveFrames: consecutiveMotionFrames,
 });
 
 /**
- * Compares two PNG thumbnail base64 strings with noise filtering.
+ * Computes the normalized mathematical difference between two thumbnail base64 strings.
  *
- * Only counts character differences ABOVE the noise floor.
- * Small variations (±1-3 charCode) from PNG compression rounding are ignored.
- * Large variations (±10+) from real pixel changes are counted.
+ * Combines:
+ *   1. Mean absolute byte difference: sum(|a[i] - b[i]|) / (length * 255)
+ *   2. Length delta ratio: |len(a) - len(b)| / max(len(a), len(b))
  *
- * Returns a score between 0 (identical) and 1 (completely different).
+ * Results:
+ *   - Static scene: ~0.01 - 0.04
+ *   - Real motion:  ~0.15 - 0.50+
  */
-const compareThumbnails = (a: string, b: string): number => {
+const computeNormalizedDiff = (a: string, b: string): number => {
   const minLen = Math.min(a.length, b.length);
   const maxLen = Math.max(a.length, b.length);
 
   if (minLen === 0) return 0;
 
-  let significantChanges = 0;
-  let totalSignificantDiff = 0;
-
+  let totalDiff = 0;
   for (let i = 0; i < minLen; i++) {
-    const diff = Math.abs(a.charCodeAt(i) - b.charCodeAt(i));
-    if (diff > CHAR_NOISE_FLOOR) {
-      significantChanges++;
-      totalSignificantDiff += diff;
-    }
+    totalDiff += Math.abs(a.charCodeAt(i) - b.charCodeAt(i));
   }
 
-  // Length difference penalty (major image restructuring)
-  const lengthDiffRatio = Math.abs(a.length - b.length) / maxLen;
+  const meanCharDiff = (totalDiff / minLen) / 255;
+  const lengthDiffRatio = (maxLen - minLen) / maxLen;
 
-  // Ratio of characters with significant changes
-  const changeRatio = significantChanges / minLen;
-
-  // Average magnitude of significant changes (normalized)
-  const avgMagnitude = significantChanges > 0
-    ? (totalSignificantDiff / significantChanges) / 60
-    : 0;
-
-  // Combined score
-  const score = (changeRatio * 0.5) + (avgMagnitude * 0.35) + (lengthDiffRatio * 0.15);
-
-  return score;
+  return (meanCharDiff * 0.7) + (lengthDiffRatio * 0.3);
 };
 
 /**
- * Captures a photo, resizes to a tiny PNG thumbnail, and compares with baseline.
+ * Captures Frame N, compares it against Frame N-1, and updates baseline.
  */
 export const analyzeFrame = async (
   cameraRef: RefObject<any>,
@@ -109,7 +94,7 @@ export const analyzeFrame = async (
       return { motionDetected: false, score: 0 };
     }
 
-    // Resize to tiny thumbnail using PNG (lossless, deterministic)
+    // Resize to tiny 20x15 PNG thumbnail
     const thumbnail = await ImageManipulator.manipulateAsync(
       photo.uri,
       [{ resize: { width: THUMBNAIL_WIDTH, height: THUMBNAIL_HEIGHT } }],
@@ -122,21 +107,27 @@ export const analyzeFrame = async (
     }
 
     frameCount++;
+    const currentThumbnail = thumbnail.base64;
 
-    // First frame: establish baseline
-    if (!baselineThumbnail) {
-      baselineThumbnail = thumbnail.base64;
+    // First frame: store as baseline and wait for next frame
+    if (!previousThumbnail) {
+      previousThumbnail = currentThumbnail;
       consecutiveMotionFrames = 0;
-      console.log(`[Motion] ✅ Baseline set (frame #${frameCount}, PNG ${thumbnail.base64.length} chars)`);
+      console.log(`[Motion] ✅ Initial baseline set (frame #${frameCount}, len: ${currentThumbnail.length})`);
       return { motionDetected: false, score: 0 };
     }
 
-    const score = compareThumbnails(thumbnail.base64, baselineThumbnail);
+    // Compare Frame N against Frame N-1
+    const score = computeNormalizedDiff(currentThumbnail, previousThumbnail);
     latestScore = score;
+
+    // Always update baseline to current frame for next comparison
+    previousThumbnail = currentThumbnail;
+
     const threshold = SENSITIVITY_THRESHOLDS[sensitivity];
     const frameExceedsThreshold = score > threshold;
 
-    console.log(`[Motion] Frame #${frameCount} | Score: ${score.toFixed(4)} | Threshold: ${threshold} | ${frameExceedsThreshold ? '⚠️ ABOVE' : '✅ below'} | Len: ${thumbnail.base64.length}`);
+    console.log(`[Motion] Frame #${frameCount} | Score: ${score.toFixed(4)} | Threshold: ${threshold} | ${frameExceedsThreshold ? '⚠️ ABOVE' : '✅ below'} | Consecutive: ${consecutiveMotionFrames}`);
 
     if (frameExceedsThreshold) {
       consecutiveMotionFrames++;
@@ -148,11 +139,7 @@ export const analyzeFrame = async (
 
     if (motionDetected) {
       console.log(`[Motion] 🚨🚨🚨 MOTION CONFIRMED! Score: ${score.toFixed(4)}`);
-      baselineThumbnail = thumbnail.base64;
       consecutiveMotionFrames = 0;
-    } else if (!frameExceedsThreshold) {
-      // Update baseline on stable frames to adapt to gradual changes
-      baselineThumbnail = thumbnail.base64;
     }
 
     return { motionDetected, score };
@@ -176,14 +163,13 @@ export const startMotionDetection = (
 
   isRunning = true;
   isAnalyzing = false;
-  baselineThumbnail = null;
+  previousThumbnail = null;
   lastMotionTimestamp = 0;
   consecutiveMotionFrames = 0;
   frameCount = 0;
   latestScore = 0;
 
-  console.log(`[Motion] ✅ STARTED v4.1 PNG (sensitivity: ${sensitivity}, interval: ${intervalMs}ms, ${THUMBNAIL_WIDTH}x${THUMBNAIL_HEIGHT}px, noise floor: ${CHAR_NOISE_FLOOR})`);
-  console.log(`[Motion] Thresholds: low=${SENSITIVITY_THRESHOLDS.low}, medium=${SENSITIVITY_THRESHOLDS.medium}, high=${SENSITIVITY_THRESHOLDS.high}`);
+  console.log(`[Motion] ✅ STARTED v5 Sequential (sensitivity: ${sensitivity}, interval: ${intervalMs}ms)`);
 
   intervalId = setInterval(async () => {
     if (!isRunning) return;
@@ -206,7 +192,7 @@ export const startMotionDetection = (
 export const stopMotionDetection = () => {
   isRunning = false;
   isAnalyzing = false;
-  baselineThumbnail = null;
+  previousThumbnail = null;
   consecutiveMotionFrames = 0;
 
   if (intervalId) {
@@ -218,7 +204,7 @@ export const stopMotionDetection = () => {
 };
 
 export const resetBaseline = () => {
-  baselineThumbnail = null;
+  previousThumbnail = null;
   consecutiveMotionFrames = 0;
   console.log('[Motion] Baseline reset');
 };
