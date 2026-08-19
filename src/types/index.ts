@@ -35,12 +35,10 @@ export interface StorageStatus {
   freeBytes: number;
 }
 
-// Calibrated for v5.1 instant detection (static noise floor: 0.055 - 0.062)
-// Static scene:  0.055 - 0.062
-// Normal motion: 0.075 - 0.120+
-// High sensitivity threshold set to 0.05 per user request
+// Calibrated for v5.1 instant detection
+// High = 0.05, Medium = 0.06, Low = 0.10
 export const SENSITIVITY_THRESHOLDS = {
   low: 0.10,
-  medium: 0.072,
+  medium: 0.06,
   high: 0.05,
 };
