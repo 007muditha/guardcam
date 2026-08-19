@@ -223,10 +223,6 @@ export const CCTVScreen = () => {
               )}
             </View>
           )}
-          {/* Debug: Live motion score display */}
-          <View style={styles.debugBar}>
-            <Text style={styles.debugText}>{debugText}</Text>
-          </View>
         </Pressable>
       )}
 
