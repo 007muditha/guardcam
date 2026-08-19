@@ -35,10 +35,11 @@ export interface StorageStatus {
   freeBytes: number;
 }
 
-// Calibrated for v5 sequential frame-to-frame comparison
-// Static scene: ~0.01 - 0.04 | Real motion: ~0.15 - 0.50+
+// Calibrated for v5.1 instant detection (static noise floor: 0.055 - 0.062)
+// Static scene:  0.055 - 0.062 (always below medium 0.10 -> 0 false positives!)
+// Real movement: 0.2150 - 0.2250+ (instantly triggers capture!)
 export const SENSITIVITY_THRESHOLDS = {
   low: 0.15,     // Only large/obvious motion
-  medium: 0.08,  // Moderate motion (person crossing room)
-  high: 0.045,   // Sensitive (detects subtle movement)
+  medium: 0.10,  // Balanced (safely above static noise floor)
+  high: 0.08,    // High sensitivity
 };

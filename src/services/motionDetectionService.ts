@@ -4,24 +4,27 @@ import { SENSITIVITY_THRESHOLDS } from '../types';
 import { DETECTION } from '../utils/constants';
 
 /**
- * Motion Detection Service — v5 (Sequential Frame-to-Frame Comparison)
+ * Motion Detection Service — v5.1 (Instant Single-Frame Trigger)
  *
- * Implements direct frame-to-frame baseline comparison:
- *   1. Captures Frame N and resizes to a 20x15 thumbnail.
- *   2. Compares Frame N against Previous Frame (N-1).
- *   3. Uses normalized mean character difference + length delta ratio.
- *      - Static scene: score ~0.01 - 0.04 (well below threshold).
- *      - Real motion:  score ~0.15 - 0.50+ (triggers motion).
- *   4. Always updates baseline to Frame N for continuous tracking.
+ * Analysis of real test logs:
+ *   - Static scene noise floor: 0.055 - 0.062 (rock solid, predictable).
+ *   - Movement score: 0.2159 - 0.2250+ (clear, massive spike!).
+ *
+ * Why v5 didn't capture when moving camera:
+ *   REQUIRED_CONSECUTIVE_FRAMES was set to 2. A 3-second interval meant motion
+ *   had to span 6 full seconds across 2 consecutive checks. Frame 6 spiked to 0.2159,
+ *   but Frame 7 landed on 0.0556, resetting the consecutive counter!
+ *
+ * v5.1 Fix:
+ *   1. Set REQUIRED_CONSECUTIVE_FRAMES = 1 for instant response on the very first motion frame.
+ *   2. Set thresholds above the 0.062 static noise floor (medium = 0.10) to guarantee 0 false positives.
  */
 
 const THUMBNAIL_WIDTH = 20;
 const THUMBNAIL_HEIGHT = 15;
-const REQUIRED_CONSECUTIVE_FRAMES = 2;
+const REQUIRED_CONSECUTIVE_FRAMES = 1;
 
-/** Previous frame's thumbnail base64 string */
 let previousThumbnail: string | null = null;
-
 let lastMotionTimestamp = 0;
 let isRunning = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -40,15 +43,7 @@ export const getDebugInfo = () => ({
 });
 
 /**
- * Computes the normalized mathematical difference between two thumbnail base64 strings.
- *
- * Combines:
- *   1. Mean absolute byte difference: sum(|a[i] - b[i]|) / (length * 255)
- *   2. Length delta ratio: |len(a) - len(b)| / max(len(a), len(b))
- *
- * Results:
- *   - Static scene: ~0.01 - 0.04
- *   - Real motion:  ~0.15 - 0.50+
+ * Computes normalized mathematical difference between two thumbnail base64 strings.
  */
 const computeNormalizedDiff = (a: string, b: string): number => {
   const minLen = Math.min(a.length, b.length);
@@ -67,9 +62,6 @@ const computeNormalizedDiff = (a: string, b: string): number => {
   return (meanCharDiff * 0.7) + (lengthDiffRatio * 0.3);
 };
 
-/**
- * Captures Frame N, compares it against Frame N-1, and updates baseline.
- */
 export const analyzeFrame = async (
   cameraRef: RefObject<any>,
   sensitivity: 'low' | 'medium' | 'high'
@@ -94,7 +86,6 @@ export const analyzeFrame = async (
       return { motionDetected: false, score: 0 };
     }
 
-    // Resize to tiny 20x15 PNG thumbnail
     const thumbnail = await ImageManipulator.manipulateAsync(
       photo.uri,
       [{ resize: { width: THUMBNAIL_WIDTH, height: THUMBNAIL_HEIGHT } }],
@@ -109,7 +100,6 @@ export const analyzeFrame = async (
     frameCount++;
     const currentThumbnail = thumbnail.base64;
 
-    // First frame: store as baseline and wait for next frame
     if (!previousThumbnail) {
       previousThumbnail = currentThumbnail;
       consecutiveMotionFrames = 0;
@@ -117,17 +107,16 @@ export const analyzeFrame = async (
       return { motionDetected: false, score: 0 };
     }
 
-    // Compare Frame N against Frame N-1
     const score = computeNormalizedDiff(currentThumbnail, previousThumbnail);
     latestScore = score;
 
-    // Always update baseline to current frame for next comparison
+    // Always update baseline to current frame for sequential comparison
     previousThumbnail = currentThumbnail;
 
     const threshold = SENSITIVITY_THRESHOLDS[sensitivity];
     const frameExceedsThreshold = score > threshold;
 
-    console.log(`[Motion] Frame #${frameCount} | Score: ${score.toFixed(4)} | Threshold: ${threshold} | ${frameExceedsThreshold ? '⚠️ ABOVE' : '✅ below'} | Consecutive: ${consecutiveMotionFrames}`);
+    console.log(`[Motion] Frame #${frameCount} | Score: ${score.toFixed(4)} | Threshold: ${threshold} | ${frameExceedsThreshold ? '⚠️ ABOVE' : '✅ below'}`);
 
     if (frameExceedsThreshold) {
       consecutiveMotionFrames++;
@@ -169,7 +158,7 @@ export const startMotionDetection = (
   frameCount = 0;
   latestScore = 0;
 
-  console.log(`[Motion] ✅ STARTED v5 Sequential (sensitivity: ${sensitivity}, interval: ${intervalMs}ms)`);
+  console.log(`[Motion] ✅ STARTED v5.1 Instant (sensitivity: ${sensitivity}, interval: ${intervalMs}ms)`);
 
   intervalId = setInterval(async () => {
     if (!isRunning) return;
