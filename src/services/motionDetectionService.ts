@@ -3,18 +3,18 @@ import { SENSITIVITY_THRESHOLDS } from '../types';
 import { DETECTION } from '../utils/constants';
 
 /**
- * Motion Detection Service
+ * Motion Detection Service — v2 (Adaptive + Consecutive Frame Confirmation)
  *
- * Uses an adaptive snapshot-comparison algorithm:
- *   1. Periodically captures low-quality snapshots with base64 data.
- *   2. Extracts luminance sample arrays across the frame.
- *   3. Compares against an adaptive baseline frame.
- *   4. Ignores camera sensor noise & auto-exposure fluctuations.
- *   5. Triggers motion only when a real physical movement occurs.
+ * Key improvements over v1:
+ *   1. Requires 2 CONSECUTIVE frames to exceed the threshold before triggering.
+ *      This eliminates single-frame JPEG compression noise false positives.
+ *   2. Uses adaptive baseline smoothing (exponential moving average) so gradual
+ *      lighting changes and camera auto-exposure adjustments don't trigger motion.
+ *   3. Higher sensitivity thresholds calibrated to real-world base64 noise floor.
  */
 
-/** Previous frame's luminance samples */
-let previousSamples: number[] | null = null;
+/** Adaptive baseline luminance samples */
+let baselineSamples: number[] | null = null;
 
 /** Timestamp of the last motion trigger (for cooldown) */
 let lastMotionTimestamp = 0;
@@ -28,9 +28,15 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 /** Whether a frame is currently being analyzed (prevent overlap) */
 let isAnalyzing = false;
 
+/** Count of consecutive frames that exceeded the motion threshold */
+let consecutiveMotionFrames = 0;
+
+/** Number of consecutive frames required before triggering motion */
+const REQUIRED_CONSECUTIVE_FRAMES = 2;
+
 /**
  * Extracts a robust luminance fingerprint from base64-encoded image data.
- * Samples character codes across the data payload.
+ * Samples character codes at evenly spaced intervals across the payload.
  */
 const extractLuminanceSamples = (base64: string, sampleCount = 256): number[] => {
   const samples: number[] = [];
@@ -61,7 +67,9 @@ const computeDifference = (a: number[], b: number[]): number => {
 };
 
 /**
- * Takes a single snapshot and compares it against the adaptive baseline frame.
+ * Takes a single snapshot and compares it against the adaptive baseline.
+ * Returns motionDetected=true only after REQUIRED_CONSECUTIVE_FRAMES
+ * frames in a row exceed the threshold.
  */
 export const analyzeFrame = async (
   cameraRef: RefObject<any>,
@@ -88,25 +96,39 @@ export const analyzeFrame = async (
 
     const currentSamples = extractLuminanceSamples(photo.base64);
 
-    if (!previousSamples) {
-      previousSamples = currentSamples;
+    // First frame: establish baseline
+    if (!baselineSamples) {
+      baselineSamples = currentSamples;
+      consecutiveMotionFrames = 0;
       console.log('[Motion] Baseline frame initialized');
       return { motionDetected: false, score: 0 };
     }
 
-    const score = computeDifference(currentSamples, previousSamples);
+    const score = computeDifference(currentSamples, baselineSamples);
     const threshold = SENSITIVITY_THRESHOLDS[sensitivity];
-    const motionDetected = score > threshold;
+    const frameExceedsThreshold = score > threshold;
+
+    if (frameExceedsThreshold) {
+      consecutiveMotionFrames++;
+    } else {
+      // Reset consecutive counter on any non-motion frame
+      consecutiveMotionFrames = 0;
+    }
+
+    // Only confirm motion if N consecutive frames exceeded the threshold
+    const motionDetected = consecutiveMotionFrames >= REQUIRED_CONSECUTIVE_FRAMES;
 
     if (motionDetected) {
-      console.log(`[Motion] 🚨 MOTION DETECTED! Score: ${score.toFixed(4)} > threshold: ${threshold}`);
-      // On motion, update baseline to current frame
-      previousSamples = currentSamples;
+      console.log(`[Motion] 🚨 CONFIRMED! Score: ${score.toFixed(4)} > ${threshold} (${consecutiveMotionFrames} consecutive frames)`);
+      // Reset baseline to current frame after confirmed motion
+      baselineSamples = currentSamples;
+      consecutiveMotionFrames = 0;
     } else {
-      // On non-motion, smooth baseline to adapt to subtle lighting changes
-      previousSamples = previousSamples.map((prev, idx) => {
+      // Smoothly adapt baseline to gradual lighting/auto-exposure changes
+      // This prevents slow environmental changes from accumulating into false triggers
+      baselineSamples = baselineSamples.map((prev, idx) => {
         const curr = currentSamples[idx] || prev;
-        return Math.round(prev * 0.7 + curr * 0.3);
+        return Math.round(prev * 0.8 + curr * 0.2);
       });
     }
 
@@ -124,7 +146,7 @@ export const analyzeFrame = async (
  *
  * @param cameraRef - Reference to the CameraView
  * @param sensitivity - Detection sensitivity level
- * @param onMotion - Callback when motion is detected
+ * @param onMotion - Callback when motion is confirmed
  * @param intervalMs - Milliseconds between checks (default 2500ms)
  */
 export const startMotionDetection = (
@@ -139,10 +161,11 @@ export const startMotionDetection = (
 
   isRunning = true;
   isAnalyzing = false;
-  previousSamples = null;
+  baselineSamples = null;
   lastMotionTimestamp = 0;
+  consecutiveMotionFrames = 0;
 
-  console.log(`[Motion] ✅ Started detection (sensitivity: ${sensitivity}, interval: ${intervalMs}ms)`);
+  console.log(`[Motion] ✅ Started (sensitivity: ${sensitivity}, interval: ${intervalMs}ms, requires ${REQUIRED_CONSECUTIVE_FRAMES} consecutive frames)`);
 
   intervalId = setInterval(async () => {
     if (!isRunning) return;
@@ -155,7 +178,7 @@ export const startMotionDetection = (
         lastMotionTimestamp = now;
         onMotion(score);
       } else {
-        console.log(`[Motion] Cooldown active, skipping capture (${((DETECTION.COOLDOWN_MS - (now - lastMotionTimestamp)) / 1000).toFixed(0)}s remaining)`);
+        console.log(`[Motion] Cooldown active (${((DETECTION.COOLDOWN_MS - (now - lastMotionTimestamp)) / 1000).toFixed(0)}s remaining)`);
       }
     }
   }, intervalMs);
@@ -167,7 +190,8 @@ export const startMotionDetection = (
 export const stopMotionDetection = () => {
   isRunning = false;
   isAnalyzing = false;
-  previousSamples = null;
+  baselineSamples = null;
+  consecutiveMotionFrames = 0;
 
   if (intervalId) {
     clearInterval(intervalId);
@@ -181,6 +205,7 @@ export const stopMotionDetection = () => {
  * Resets the baseline frame (useful when switching cameras).
  */
 export const resetBaseline = () => {
-  previousSamples = null;
+  baselineSamples = null;
+  consecutiveMotionFrames = 0;
   console.log('[Motion] Baseline reset');
 };

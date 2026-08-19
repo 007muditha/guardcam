@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, StatusBar, Vibration } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Animated, StatusBar } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -75,8 +75,6 @@ export const CCTVScreen = () => {
         Animated.timing(flashAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
       ]).start();
 
-      Vibration.vibrate(200);
-
       await handleCapture(cameraRef, settings, async (event: MotionEvent) => {
         await addEvent(event);
         setEventCount(prev => prev + 1);
@@ -106,7 +104,7 @@ export const CCTVScreen = () => {
           cameraRef,
           settings.sensitivity,
           onMotionDetected,
-          2000
+          3000
         );
       }, 3000);
     };
@@ -129,7 +127,7 @@ export const CCTVScreen = () => {
   useEffect(() => {
     if (state === 'stealth' || state === 'controls_visible') {
       stopMotionDetection();
-      startMotionDetection(cameraRef, settings.sensitivity, onMotionDetected, 2000);
+      startMotionDetection(cameraRef, settings.sensitivity, onMotionDetected, 3000);
     }
   }, [settings.sensitivity, onMotionDetected]);
 
