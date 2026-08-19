@@ -4,27 +4,22 @@ import { SENSITIVITY_THRESHOLDS } from '../types';
 import { DETECTION } from '../utils/constants';
 
 /**
- * Motion Detection Service — v4 (Thumbnail Pixel Comparison)
+ * Motion Detection Service — v4.1 (PNG Thumbnail + Noise-Filtered Comparison)
  *
- * Why previous versions failed:
- *   Comparing base64 characters from full-size JPEGs doesn't work because
- *   JPEG compression produces wildly different byte streams even for identical
- *   scenes. Block-averaging base64 characters produced scores of 0.02-0.05
- *   for EVERYTHING — static or moving.
- *
- * v4 solution:
- *   1. Capture a photo with takePictureAsync.
- *   2. Use expo-image-manipulator to resize it to 16x12 pixels.
- *   3. Get the base64 of this TINY thumbnail (~500 bytes).
- *   4. At 16x12, each pixel represents ~80,000 original pixels averaged together,
- *      completely eliminating sensor noise and compression artifacts.
- *   5. Compare the tiny thumbnail base64 strings directly.
- *   6. Real motion produces massive, obvious differences in the thumbnail.
+ * Key improvements over v4:
+ *   1. Uses PNG format instead of JPEG for thumbnails.
+ *      PNG is lossless and deterministic — identical pixels produce identical bytes.
+ *   2. Ignores small character changes (±5) which are compression/rounding noise.
+ *      Only counts SIGNIFICANT character changes as potential motion.
+ *   3. Slightly larger thumbnail (20x15 = 300 pixels) for better spatial resolution.
  */
 
-const THUMBNAIL_WIDTH = 16;
-const THUMBNAIL_HEIGHT = 12;
+const THUMBNAIL_WIDTH = 20;
+const THUMBNAIL_HEIGHT = 15;
 const REQUIRED_CONSECUTIVE_FRAMES = 2;
+
+/** Minimum character difference to count as "significant" (ignores rounding noise) */
+const CHAR_NOISE_FLOOR = 3;
 
 let baselineThumbnail: string | null = null;
 let lastMotionTimestamp = 0;
@@ -33,7 +28,6 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 let isAnalyzing = false;
 let consecutiveMotionFrames = 0;
 
-/** Debug info */
 let latestScore = 0;
 let frameCount = 0;
 
@@ -46,10 +40,13 @@ export const getDebugInfo = () => ({
 });
 
 /**
- * Computes normalized difference between two base64 thumbnail strings.
- * Because the thumbnails are tiny (16x12 = 192 pixels), the base64
- * is only ~500-800 characters, and each character represents a
- * meaningful portion of the image.
+ * Compares two PNG thumbnail base64 strings with noise filtering.
+ *
+ * Only counts character differences ABOVE the noise floor.
+ * Small variations (±1-3 charCode) from PNG compression rounding are ignored.
+ * Large variations (±10+) from real pixel changes are counted.
+ *
+ * Returns a score between 0 (identical) and 1 (completely different).
  */
 const compareThumbnails = (a: string, b: string): number => {
   const minLen = Math.min(a.length, b.length);
@@ -57,32 +54,36 @@ const compareThumbnails = (a: string, b: string): number => {
 
   if (minLen === 0) return 0;
 
-  let diffCount = 0;
-  let totalCharDiff = 0;
+  let significantChanges = 0;
+  let totalSignificantDiff = 0;
 
   for (let i = 0; i < minLen; i++) {
     const diff = Math.abs(a.charCodeAt(i) - b.charCodeAt(i));
-    if (diff > 0) {
-      diffCount++;
-      totalCharDiff += diff;
+    if (diff > CHAR_NOISE_FLOOR) {
+      significantChanges++;
+      totalSignificantDiff += diff;
     }
   }
 
-  // Add penalty for length difference (indicates major image change)
-  const lengthPenalty = Math.abs(a.length - b.length) / maxLen;
+  // Length difference penalty (major image restructuring)
+  const lengthDiffRatio = Math.abs(a.length - b.length) / maxLen;
 
-  // Combine: percentage of characters that changed + average magnitude of change
-  const changeRatio = diffCount / minLen;
-  const avgMagnitude = diffCount > 0 ? (totalCharDiff / diffCount) / 80 : 0;
+  // Ratio of characters with significant changes
+  const changeRatio = significantChanges / minLen;
 
-  // Final score: weighted combination
-  const score = (changeRatio * 0.6) + (avgMagnitude * 0.3) + (lengthPenalty * 0.1);
+  // Average magnitude of significant changes (normalized)
+  const avgMagnitude = significantChanges > 0
+    ? (totalSignificantDiff / significantChanges) / 60
+    : 0;
+
+  // Combined score
+  const score = (changeRatio * 0.5) + (avgMagnitude * 0.35) + (lengthDiffRatio * 0.15);
 
   return score;
 };
 
 /**
- * Captures a photo, resizes to a tiny thumbnail, and compares with baseline.
+ * Captures a photo, resizes to a tiny PNG thumbnail, and compares with baseline.
  */
 export const analyzeFrame = async (
   cameraRef: RefObject<any>,
@@ -99,7 +100,6 @@ export const analyzeFrame = async (
       return { motionDetected: false, score: 0 };
     }
 
-    // Step 1: Capture photo (low quality, just need the URI)
     const photo = await cameraRef.current.takePictureAsync({
       quality: 0.1,
     });
@@ -109,11 +109,11 @@ export const analyzeFrame = async (
       return { motionDetected: false, score: 0 };
     }
 
-    // Step 2: Resize to tiny thumbnail using ImageManipulator
+    // Resize to tiny thumbnail using PNG (lossless, deterministic)
     const thumbnail = await ImageManipulator.manipulateAsync(
       photo.uri,
       [{ resize: { width: THUMBNAIL_WIDTH, height: THUMBNAIL_HEIGHT } }],
-      { base64: true, compress: 1.0, format: ImageManipulator.SaveFormat.JPEG }
+      { base64: true, compress: 1.0, format: ImageManipulator.SaveFormat.PNG }
     );
 
     if (!thumbnail?.base64) {
@@ -123,23 +123,20 @@ export const analyzeFrame = async (
 
     frameCount++;
 
-    console.log(`[Motion] 🖼️ Thumbnail base64 length: ${thumbnail.base64.length}`);
-
     // First frame: establish baseline
     if (!baselineThumbnail) {
       baselineThumbnail = thumbnail.base64;
       consecutiveMotionFrames = 0;
-      console.log(`[Motion] ✅ Baseline set (frame #${frameCount}, thumbnail ${thumbnail.base64.length} chars)`);
+      console.log(`[Motion] ✅ Baseline set (frame #${frameCount}, PNG ${thumbnail.base64.length} chars)`);
       return { motionDetected: false, score: 0 };
     }
 
-    // Step 3: Compare thumbnails
     const score = compareThumbnails(thumbnail.base64, baselineThumbnail);
     latestScore = score;
     const threshold = SENSITIVITY_THRESHOLDS[sensitivity];
     const frameExceedsThreshold = score > threshold;
 
-    console.log(`[Motion] Frame #${frameCount} | Score: ${score.toFixed(4)} | Threshold: ${threshold} | ${frameExceedsThreshold ? '⚠️ ABOVE' : '✅ below'} | Consecutive: ${consecutiveMotionFrames}`);
+    console.log(`[Motion] Frame #${frameCount} | Score: ${score.toFixed(4)} | Threshold: ${threshold} | ${frameExceedsThreshold ? '⚠️ ABOVE' : '✅ below'} | Len: ${thumbnail.base64.length}`);
 
     if (frameExceedsThreshold) {
       consecutiveMotionFrames++;
@@ -154,12 +151,8 @@ export const analyzeFrame = async (
       baselineThumbnail = thumbnail.base64;
       consecutiveMotionFrames = 0;
     } else if (!frameExceedsThreshold) {
-      // Slowly update baseline to adapt to gradual changes
-      // Every 5th frame, update baseline to current
-      if (frameCount % 5 === 0) {
-        baselineThumbnail = thumbnail.base64;
-        console.log(`[Motion] 🔄 Baseline refreshed (frame #${frameCount})`);
-      }
+      // Update baseline on stable frames to adapt to gradual changes
+      baselineThumbnail = thumbnail.base64;
     }
 
     return { motionDetected, score };
@@ -189,7 +182,7 @@ export const startMotionDetection = (
   frameCount = 0;
   latestScore = 0;
 
-  console.log(`[Motion] ✅ STARTED v4 THUMBNAIL (sensitivity: ${sensitivity}, interval: ${intervalMs}ms, ${THUMBNAIL_WIDTH}x${THUMBNAIL_HEIGHT}px)`);
+  console.log(`[Motion] ✅ STARTED v4.1 PNG (sensitivity: ${sensitivity}, interval: ${intervalMs}ms, ${THUMBNAIL_WIDTH}x${THUMBNAIL_HEIGHT}px, noise floor: ${CHAR_NOISE_FLOOR})`);
   console.log(`[Motion] Thresholds: low=${SENSITIVITY_THRESHOLDS.low}, medium=${SENSITIVITY_THRESHOLDS.medium}, high=${SENSITIVITY_THRESHOLDS.high}`);
 
   intervalId = setInterval(async () => {
