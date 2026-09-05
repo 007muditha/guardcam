@@ -22,60 +22,40 @@ export const capturePhoto = async (camera: RefObject<any>): Promise<string | nul
 };
 
 /**
- * Starts video recording using Expo CameraView ref.
+ * Uploads a list of captured burst photos to Google Drive in the background.
+ * Sequentially uploads each frame so it never floods the network connection or drops frames.
  */
-export const startVideoRecording = async (camera: RefObject<any>, durationSec: number): Promise<string | null> => {
-  try {
-    if (!camera.current) {
-      console.warn('[Capture] Camera ref is null when starting video');
-      return null;
+export const batchUploadToDrive = async (
+  fileUris: string[],
+  eventId: string,
+  folderId: string,
+  accessToken: string
+): Promise<number> => {
+  let successCount = 0;
+  console.log(`[DriveBatch] ☁️ Starting sequential background upload of ${fileUris.length} photos...`);
+
+  for (let i = 0; i < fileUris.length; i++) {
+    try {
+      const fileName = fileUris.length > 1 
+        ? `GuardCam_${eventId}_frame${i + 1}.jpg` 
+        : `GuardCam_${eventId}.jpg`;
+
+      await uploadFile(
+        fileUris[i],
+        fileName,
+        'image/jpeg',
+        folderId,
+        accessToken
+      );
+      successCount++;
+      console.log(`[DriveBatch] ☁️ Synced frame ${i + 1}/${fileUris.length} to Google Drive`);
+    } catch (err) {
+      console.warn(`[DriveBatch] ⚠️ Failed uploading frame ${i + 1}:`, err);
     }
-
-    console.log(`[Capture] 🎥 Calling recordAsync(maxDuration: ${durationSec}s)...`);
-
-    let stopTimer: any = null;
-    const safetyPromise = new Promise<void>((resolve) => {
-      stopTimer = setTimeout(async () => {
-        try {
-          console.log('[Capture] ⏱️ Duration reached, ensuring recording stops...');
-          if (camera.current && typeof camera.current.stopRecording === 'function') {
-            camera.current.stopRecording();
-          }
-        } catch (e) {
-          console.warn('[Capture] Error calling stopRecording:', e);
-        }
-        resolve();
-      }, (durationSec + 1) * 1000);
-    });
-
-    const videoPromise = camera.current.recordAsync({
-      maxDuration: durationSec,
-    });
-
-    const recordingResult = await Promise.race([
-      videoPromise,
-      safetyPromise.then(() => videoPromise),
-    ]);
-
-    if (stopTimer) clearTimeout(stopTimer);
-    console.log('[Capture] 🎥 recordAsync completed with:', recordingResult);
-    return recordingResult?.uri || null;
-  } catch (error: any) {
-    console.error('[Capture] ❌ Failed to record video:', error?.message || error);
-    return null;
   }
-};
 
-/**
- * Stops video recording.
- */
-export const stopVideoRecording = async (camera: RefObject<any>): Promise<void> => {
-  try {
-    if (!camera.current) return;
-    camera.current.stopRecording();
-  } catch (error) {
-    console.error('Failed to stop video recording', error);
-  }
+  console.log(`[DriveBatch] ✅ Batch upload complete: ${successCount}/${fileUris.length} files synced.`);
+  return successCount;
 };
 
 /**
@@ -102,8 +82,8 @@ export const handleCapture = async (
     }
 
     const burstUris: string[] = [];
-    let uploadedCount = 0;
 
+    // 1. Capture sequence runs with ZERO network interference for maximum camera frame rate
     if (isBurstMode) {
       console.log(`[Capture] ⚡ Starting ${burstDurationSec}s burst sequence (every ${burstIntervalMs}ms)...`);
       if (onBurstProgress) onBurstProgress(0, true);
@@ -126,21 +106,6 @@ export const handleCapture = async (
             }
             burstUris.push(finalUri);
 
-            // Upload frame to Google Drive in background
-            if (gDriveToken && settings.googleDriveFolderId) {
-              uploadFile(
-                finalUri,
-                `GuardCam_${eventId}_frame${frameIndex}.jpg`,
-                'image/jpeg',
-                settings.googleDriveFolderId,
-                gDriveToken
-              ).then(() => {
-                uploadedCount++;
-              }).catch(err => {
-                console.warn('[Capture] Drive upload frame error:', err);
-              });
-            }
-
             if (onBurstProgress) onBurstProgress(frameIndex, true);
             frameIndex++;
           }
@@ -153,7 +118,7 @@ export const handleCapture = async (
       }
 
       if (onBurstProgress) onBurstProgress(burstUris.length, false);
-      console.log(`[Capture] ⚡ Burst sequence completed: ${burstUris.length} frames captured.`);
+      console.log(`[Capture] ⚡ Burst sequence completed: ${burstUris.length} frames captured locally.`);
     } else {
       // Single instant evidence photo
       const photoUri = await capturePhoto(camera);
@@ -167,22 +132,13 @@ export const handleCapture = async (
           }
         }
         burstUris.push(finalUri);
-
-        if (gDriveToken && settings.googleDriveFolderId) {
-          try {
-            await uploadFile(
-              finalUri,
-              `GuardCam_${eventId}.jpg`,
-              'image/jpeg',
-              settings.googleDriveFolderId,
-              gDriveToken
-            );
-            uploadedCount++;
-          } catch (e) {
-            console.warn('[Capture] Single photo Drive upload error:', e);
-          }
-        }
       }
+    }
+
+    // 2. Batch upload all captured photos to Google Drive in the background (NON-BLOCKING)
+    if (gDriveToken && settings.googleDriveFolderId && burstUris.length > 0) {
+      batchUploadToDrive(burstUris, eventId, settings.googleDriveFolderId, gDriveToken)
+        .catch(err => console.warn('[Capture] Drive batch upload error:', err));
     }
 
     const mainPhotoUri = burstUris[0] || undefined;
@@ -197,8 +153,8 @@ export const handleCapture = async (
       burstCount: burstUris.length,
       burstUris,
       photoUri: mainPhotoUri,
-      uploaded: uploadedCount > 0,
-      uploadedAt: uploadedCount > 0 ? Date.now() : undefined
+      uploaded: !!(gDriveToken && settings.googleDriveFolderId),
+      uploadedAt: gDriveToken && settings.googleDriveFolderId ? Date.now() : undefined
     };
 
     await onEvent(event);
