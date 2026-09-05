@@ -18,8 +18,9 @@ import { AppSettings } from '../types';
 
 const DEFAULT_SETTINGS: AppSettings = {
   sensitivity: 'medium',
-  recordVideo: true,
-  videoDuration: 10,
+  captureMode: 'burst',
+  burstDuration: 10,
+  burstIntervalMs: 500,
   cameraPosition: 'back',
   showStealthIndicator: true,
   saveToGallery: true,
@@ -264,46 +265,44 @@ export const SettingsScreen = () => {
           <View style={styles.card}>
             <View style={styles.switchRow}>
               <View style={styles.switchLabel}>
-                <Text style={styles.label}>Record Video on Motion</Text>
+                <Text style={styles.label}>10s Motion Burst Sequence</Text>
                 <Text style={styles.hint}>
-                  When motion is detected, record a video clip from the motion point
+                  Takes photos every 0.5s for 10 seconds to capture all movements
                 </Text>
               </View>
               <Switch
-                value={settings.recordVideo !== false}
+                value={settings.captureMode !== 'single'}
                 onValueChange={(val) => {
-                  updateSetting('recordVideo', val);
-                  updateSetting('captureMode', val ? 'both' : 'photo');
+                  updateSetting('captureMode', val ? 'burst' : 'single');
                 }}
                 trackColor={{ false: COLORS.SURFACE, true: COLORS.PRIMARY }}
-                thumbColor={settings.recordVideo !== false ? '#fff' : COLORS.TEXT_DIM}
+                thumbColor={settings.captureMode !== 'single' ? '#fff' : COLORS.TEXT_DIM}
               />
             </View>
 
-            {settings.recordVideo !== false && (
+            {settings.captureMode !== 'single' && (
               <>
                 <View style={styles.divider} />
                 <View style={styles.switchRow}>
-                  <Text style={styles.label}>Video Clip Duration</Text>
-                  <Text style={styles.durationValue}>{settings.videoDuration || 10}s</Text>
+                  <Text style={styles.label}>Burst Duration</Text>
+                  <Text style={styles.durationValue}>{settings.burstDuration || 10}s</Text>
                 </View>
                 <View style={styles.pillSpacer}>
-                  {renderPillRow('videoDuration', [
-                    { value: 5, label: '5s' },
+                  {renderPillRow('burstDuration', [
+                    { value: 5, label: '5s (~10 photos)' },
                     { value: 10, label: '10s (Best)' },
-                    { value: 15, label: '15s' },
-                    { value: 30, label: '30s' },
+                    { value: 15, label: '15s (~30 photos)' },
                   ])}
                 </View>
                 <Text style={styles.hint}>
-                  ⚡ GuardCam takes an evidence photo and immediately records a {settings.videoDuration || 10}-second video clip from the moment motion is detected.
+                  ⚡ When motion triggers, GuardCam takes rapid photos every 0.5s for {settings.burstDuration || 10}s, giving you a complete photographic timeline of the movement.
                 </Text>
               </>
             )}
 
             <View style={styles.divider} />
             <Text style={styles.hint}>
-              📱 Photos and videos are saved to device storage (GuardCam folder) and synced directly to Google Drive.
+              📱 Every frame is safely saved to device storage and synced in real time to your Google Drive folder.
             </Text>
           </View>
         </View>

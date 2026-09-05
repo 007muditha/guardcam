@@ -79,55 +79,20 @@ export const stopVideoRecording = async (camera: RefObject<any>): Promise<void> 
 };
 
 /**
- * Orchestrates capturing photo and/or 10s video, saving to local storage, and uploading to Google Drive.
+ * Orchestrates capturing photo (single or 10-second burst sequence), saving to local storage, and uploading to Google Drive.
  */
 export const handleCapture = async (
   camera: RefObject<any>, 
   settings: AppSettings, 
   onEvent: (event: MotionEvent) => Promise<void>,
-  switchCameraMode?: (mode: 'picture' | 'video') => Promise<void>,
-  onRecordingStatusChange?: (isRecording: boolean) => void
+  onBurstProgress?: (currentCount: number, isBursting: boolean) => void
 ): Promise<void> => {
   try {
     const timestamp = Date.now();
     const eventId = generateEventId();
-    // Video is recorded if recordVideo is ON (or legacy both/video mode)
-    const isVideoRequested = settings.recordVideo !== false && settings.captureMode !== 'photo';
-    const videoDuration = settings.videoDuration || 10;
-    
-    // 1. Capture instant evidence photo snapshot first
-    const photoUri = await capturePhoto(camera);
-    
-    // 2. If video recording is enabled, switch camera mode and record from the point motion was captured
-    let videoUri: string | null = null;
-    if (isVideoRequested) {
-      try {
-        if (switchCameraMode) {
-          await switchCameraMode('video');
-        }
-        if (onRecordingStatusChange) {
-          onRecordingStatusChange(true);
-        }
-
-        console.log(`[Capture] 🎥 Recording ${videoDuration}s video clip from motion point...`);
-        videoUri = await startVideoRecording(camera, videoDuration);
-        console.log('[Capture] 🎥 Video recording status:', videoUri ? 'Success' : 'Failed');
-      } catch (videoErr) {
-        console.error('[Capture] Video recording error:', videoErr);
-      } finally {
-        if (onRecordingStatusChange) {
-          onRecordingStatusChange(false);
-        }
-        if (switchCameraMode) {
-          await switchCameraMode('picture');
-        }
-      }
-    }
-    
-    let finalPhotoUri = photoUri;
-    let finalVideoUri = videoUri;
-    let uploaded = false;
-    let uploadedAt: number | undefined = undefined;
+    const isBurstMode = settings.captureMode !== 'single';
+    const burstDurationSec = settings.burstDuration || 10;
+    const burstIntervalMs = settings.burstIntervalMs || 500;
     const shouldSaveGallery = settings.saveToGallery !== false;
 
     // Get Google Drive token if enabled
@@ -136,83 +101,108 @@ export const handleCapture = async (
       gDriveToken = await getAccessToken();
     }
 
-    // 3. Process photo (upload to Google Drive & save to persistent storage)
-    if (photoUri) {
-      if (gDriveToken && settings.googleDriveFolderId) {
+    const burstUris: string[] = [];
+    let uploadedCount = 0;
+
+    if (isBurstMode) {
+      console.log(`[Capture] ⚡ Starting ${burstDurationSec}s burst sequence (every ${burstIntervalMs}ms)...`);
+      if (onBurstProgress) onBurstProgress(0, true);
+
+      const startTime = Date.now();
+      const endTime = startTime + (burstDurationSec * 1000);
+      let frameIndex = 1;
+
+      while (Date.now() < endTime) {
         try {
-          await uploadFile(
-            photoUri,
-            `GuardCam_${eventId}.jpg`,
-            'image/jpeg',
-            settings.googleDriveFolderId,
-            gDriveToken
-          );
-          uploaded = true;
-          uploadedAt = Date.now();
-          console.log('[Capture] ☁️ Photo uploaded to Google Drive');
-        } catch (e) {
-          console.error('[Capture] Google Drive photo upload failed', e);
+          const photoUri = await capturePhoto(camera);
+          if (photoUri) {
+            let finalUri = photoUri;
+            if (shouldSaveGallery) {
+              try {
+                finalUri = await saveToGallery(photoUri, 'photo');
+              } catch (e) {
+                console.warn('[Capture] Gallery save fallback:', e);
+              }
+            }
+            burstUris.push(finalUri);
+
+            // Upload frame to Google Drive in background
+            if (gDriveToken && settings.googleDriveFolderId) {
+              uploadFile(
+                finalUri,
+                `GuardCam_${eventId}_frame${frameIndex}.jpg`,
+                'image/jpeg',
+                settings.googleDriveFolderId,
+                gDriveToken
+              ).then(() => {
+                uploadedCount++;
+              }).catch(err => {
+                console.warn('[Capture] Drive upload frame error:', err);
+              });
+            }
+
+            if (onBurstProgress) onBurstProgress(frameIndex, true);
+            frameIndex++;
+          }
+        } catch (frameErr) {
+          console.error('[Capture] Burst frame error:', frameErr);
         }
+
+        // Wait interval before next frame
+        await new Promise(r => setTimeout(r, burstIntervalMs));
       }
 
-      if (shouldSaveGallery) {
-        const spaceOk = await hasEnoughSpace();
-        if (spaceOk) {
+      if (onBurstProgress) onBurstProgress(burstUris.length, false);
+      console.log(`[Capture] ⚡ Burst sequence completed: ${burstUris.length} frames captured.`);
+    } else {
+      // Single instant evidence photo
+      const photoUri = await capturePhoto(camera);
+      if (photoUri) {
+        let finalUri = photoUri;
+        if (shouldSaveGallery) {
           try {
-            finalPhotoUri = await saveToGallery(photoUri, 'photo');
+            finalUri = await saveToGallery(photoUri, 'photo');
           } catch (e) {
-            console.error('[Capture] Gallery photo save failed', e);
+            console.warn('[Capture] Gallery save fallback:', e);
+          }
+        }
+        burstUris.push(finalUri);
+
+        if (gDriveToken && settings.googleDriveFolderId) {
+          try {
+            await uploadFile(
+              finalUri,
+              `GuardCam_${eventId}.jpg`,
+              'image/jpeg',
+              settings.googleDriveFolderId,
+              gDriveToken
+            );
+            uploadedCount++;
+          } catch (e) {
+            console.warn('[Capture] Single photo Drive upload error:', e);
           }
         }
       }
     }
 
-    // 4. Process video (upload to Google Drive & save to persistent storage)
-    if (videoUri) {
-      if (gDriveToken && settings.googleDriveFolderId) {
-        try {
-          await uploadFile(
-            videoUri,
-            `GuardCam_${eventId}.mp4`,
-            'video/mp4',
-            settings.googleDriveFolderId,
-            gDriveToken
-          );
-          uploaded = true;
-          uploadedAt = Date.now();
-          console.log('[Capture] ☁️ Video clip uploaded to Google Drive');
-        } catch (e) {
-          console.error('[Capture] Google Drive video upload failed', e);
-        }
-      }
+    const mainPhotoUri = burstUris[0] || undefined;
 
-      if (shouldSaveGallery) {
-        const spaceOk = await hasEnoughSpace();
-        if (spaceOk) {
-          try {
-            finalVideoUri = await saveToGallery(videoUri, 'video');
-          } catch (e) {
-            console.error('[Capture] Gallery video save failed', e);
-          }
-        }
-      }
-    }
-    
-    // 5. Log event with photo and video details
+    // Log event with burst details
     const event: MotionEvent = {
       id: eventId,
       timestamp,
       type: 'motion',
-      hasPhoto: !!finalPhotoUri,
-      hasVideo: !!finalVideoUri,
-      photoUri: finalPhotoUri || undefined,
-      videoUri: finalVideoUri || undefined,
-      uploaded,
-      uploadedAt
+      hasPhoto: burstUris.length > 0,
+      isBurst: isBurstMode,
+      burstCount: burstUris.length,
+      burstUris,
+      photoUri: mainPhotoUri,
+      uploaded: uploadedCount > 0,
+      uploadedAt: uploadedCount > 0 ? Date.now() : undefined
     };
-    
+
     await onEvent(event);
-    
+
   } catch (error) {
     console.error('Handle capture error', error);
   }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated, StatusBar } from 'react-native';
-import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { COLORS, SPACING, RADIUS, DETECTION } from '../utils/constants';
@@ -15,8 +15,9 @@ import { requestMediaPermission } from '../services/storageService';
 
 const DEFAULT_SETTINGS: AppSettings = {
   sensitivity: 'medium',
-  recordVideo: true,
-  videoDuration: DETECTION.VIDEO_DEFAULT_DURATION,
+  captureMode: 'burst',
+  burstDuration: DETECTION.BURST_DEFAULT_DURATION,
+  burstIntervalMs: DETECTION.BURST_INTERVAL_MS,
   cameraPosition: 'back',
   showStealthIndicator: true,
   saveToGallery: true,
@@ -26,10 +27,11 @@ const DEFAULT_SETTINGS: AppSettings = {
 export const CCTVScreen = () => {
   const navigation = useNavigation();
   const [permission, requestPermission] = useCameraPermissions();
-  const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const [facing, setFacing] = useState<'front' | 'back'>('back');
-  const [cameraMode, setCameraMode] = useState<'picture' | 'video'>('picture');
-  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+  const [burstStatus, setBurstStatus] = useState<{ isBursting: boolean; count: number }>({
+    isBursting: false,
+    count: 0,
+  });
   const cameraRef = useRef<any>(null);
 
   const [state, setState] = useState<'initializing' | 'preview' | 'stealth' | 'controls_visible'>('initializing');
@@ -40,15 +42,6 @@ export const CCTVScreen = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const sessionStartTime = useRef(Date.now());
   const isCapturing = useRef(false);
-  const cameraReadyPromiseRef = useRef<(() => void) | null>(null);
-
-  const handleCameraReady = useCallback(() => {
-    console.log('[CameraView] ✅ Native camera is READY (mode:', cameraMode, ')');
-    if (cameraReadyPromiseRef.current) {
-      cameraReadyPromiseRef.current();
-      cameraReadyPromiseRef.current = null;
-    }
-  }, [cameraMode]);
 
   const controlsAnim = useRef(new Animated.Value(300)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -88,7 +81,7 @@ export const CCTVScreen = () => {
         Animated.timing(flashAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
       ]).start();
 
-      // Pause frame analysis during active capture & 10s video recording
+      // Pause background motion detection loop while capturing burst sequence
       stopMotionDetection();
 
       await handleCapture(
@@ -99,31 +92,14 @@ export const CCTVScreen = () => {
           setEventCount(prev => prev + 1);
           setLastDetection(formatTime(event.timestamp));
         },
-        async (mode: 'picture' | 'video') => {
-          if (cameraMode === mode) return;
-          console.log(`[CameraView] 🔄 Switching mode to: ${mode}...`);
-          const waitReady = new Promise<void>((resolve) => {
-            cameraReadyPromiseRef.current = resolve;
-            // Safety timeout fallback if onCameraReady doesn't fire
-            setTimeout(() => {
-              console.log('[CameraView] ⏱️ Timeout fallback reached for mode switch');
-              resolve();
-            }, 1800);
-          });
-          setCameraMode(mode);
-          await waitReady;
-          // Short safety buffer for native hardware pipeline stabilization
-          await new Promise(r => setTimeout(r, 300));
-        },
-        (recording: boolean) => {
-          setIsRecordingVideo(recording);
+        (count, isBursting) => {
+          setBurstStatus({ count, isBursting });
         }
       );
     } catch (error) {
       console.error('Motion capture error:', error);
     } finally {
-      setCameraMode('picture');
-      setIsRecordingVideo(false);
+      setBurstStatus({ count: 0, isBursting: false });
       isCapturing.current = false;
       // Resume motion detection loop
       startMotionDetection(cameraRef, settings.sensitivity, onMotionDetected, 3000);
@@ -137,13 +113,6 @@ export const CCTVScreen = () => {
     const init = async () => {
       if (!permission?.granted) {
         await requestPermission();
-      }
-      if (!micPermission?.granted) {
-        try {
-          await requestMicPermission();
-        } catch (e) {
-          console.warn('Microphone permission optional:', e);
-        }
       }
       await requestMediaPermission();
       setState('preview');
@@ -256,10 +225,7 @@ export const CCTVScreen = () => {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing={facing}
-        mode={cameraMode}
-        mute={!micPermission?.granted}
         animateShutter={false}
-        onCameraReady={handleCameraReady}
       />
 
       {state !== 'stealth' && (
@@ -277,9 +243,9 @@ export const CCTVScreen = () => {
           {state === 'stealth' && settings.showStealthIndicator && (
             <View style={styles.indicatorRow}>
               <Animated.View style={[styles.indicator, { transform: [{ scale: pulseAnim }] }]} />
-              {isRecordingVideo ? (
+              {burstStatus.isBursting ? (
                 <View style={styles.recTag}>
-                  <Text style={styles.recTagText}>REC {settings.videoDuration || 10}s</Text>
+                  <Text style={styles.recTagText}>⚡ BURST {burstStatus.count}</Text>
                 </View>
               ) : (
                 eventCount > 0 && (
@@ -295,7 +261,7 @@ export const CCTVScreen = () => {
         <Animated.View style={[styles.controlsPanel, { transform: [{ translateY: controlsAnim }] }]}>
           <View style={styles.controlsHeader}>
             <Text style={styles.controlsTitle}>
-              {isRecordingVideo ? '🎥 Recording 10s Clip...' : '🔴 CCTV Active'}
+              {burstStatus.isBursting ? `⚡ Burst Capturing (${burstStatus.count})` : '🔴 CCTV Active'}
             </Text>
             <Text style={styles.controlsTime}>{getElapsedTime()}</Text>
           </View>

@@ -3,7 +3,10 @@ export interface MotionEvent {
   timestamp: number;
   type: 'person' | 'motion';
   hasPhoto: boolean;
-  hasVideo: boolean;
+  hasVideo?: boolean;
+  isBurst?: boolean;
+  burstCount?: number;
+  burstUris?: string[];
   photoUri?: string;
   videoUri?: string;
   uploaded: boolean;
@@ -20,14 +23,17 @@ export interface CCTVSession {
 
 export interface AppSettings {
   sensitivity: 'low' | 'medium' | 'high';
-  recordVideo: boolean;
-  videoDuration: number;
-  captureMode?: 'photo' | 'video' | 'both';
+  captureMode: 'single' | 'burst';
+  burstDuration: number;
+  burstIntervalMs: number;
   cameraPosition: 'front' | 'back';
   showStealthIndicator: boolean;
   saveToGallery: boolean;
   googleDriveEnabled: boolean;
   googleDriveFolderId?: string;
+  // Backwards compatibility
+  recordVideo?: boolean;
+  videoDuration?: number;
 }
 
 export interface StorageStatus {

@@ -15,6 +15,7 @@ export const GalleryScreen = () => {
   const navigation = useNavigation();
   const [media, setMedia] = useState<MotionEvent[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<MotionEvent | null>(null);
+  const [frameIndex, setFrameIndex] = useState(0);
 
   useEffect(() => {
     loadMedia();
@@ -38,7 +39,7 @@ export const GalleryScreen = () => {
   const loadMedia = async () => {
     try {
       const events = await getEvents();
-      const withMedia = events.filter((e: any) => e.hasPhoto || e.hasVideo);
+      const withMedia = events.filter((e: any) => e.hasPhoto || e.hasVideo || e.burstUris?.length);
       
       // Resolve any legacy ph:// URIs into local file URIs
       const resolvedMedia = await Promise.all(withMedia.map(resolveItemUri));
@@ -48,21 +49,31 @@ export const GalleryScreen = () => {
     }
   };
 
+  const handleOpenMedia = (item: MotionEvent) => {
+    setFrameIndex(0);
+    setSelectedMedia(item);
+  };
+
   const renderItem = ({ item }: { item: MotionEvent }) => {
+    const isBurst = item.isBurst || (item.burstUris && item.burstUris.length > 1);
+    const count = item.burstCount || item.burstUris?.length;
     return (
-      <Pressable style={styles.thumbnailContainer} onPress={() => setSelectedMedia(item)}>
+      <Pressable style={styles.thumbnailContainer} onPress={() => handleOpenMedia(item)}>
         <Image 
           source={{ uri: item.photoUri }} 
           style={styles.thumbnail}
           resizeMode="cover"
         />
         <View style={styles.badgeContainer}>
-          <Text style={styles.badgeText}>{item.hasVideo ? '🎥 10s' : '📷'}</Text>
+          <Text style={styles.badgeText}>{isBurst ? `⚡ ${count || 10}P` : '📷'}</Text>
         </View>
         {item.uploaded && <View style={styles.uploadedDot} />}
       </Pressable>
     );
   };
+
+  const currentUri = (selectedMedia?.burstUris && selectedMedia.burstUris[frameIndex]) || selectedMedia?.photoUri;
+  const burstCount = selectedMedia?.burstUris?.length || 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -108,15 +119,37 @@ export const GalleryScreen = () => {
           
           {selectedMedia && (
             <Image 
-              source={{ uri: selectedMedia.photoUri }} 
+              source={{ uri: currentUri }} 
               style={styles.fullImage}
               resizeMode="contain"
             />
           )}
 
+          {burstCount > 1 && (
+            <View style={styles.scrubberRow}>
+              <Pressable
+                disabled={frameIndex === 0}
+                onPress={() => setFrameIndex(prev => Math.max(0, prev - 1))}
+                style={[styles.scrubBtn, frameIndex === 0 && { opacity: 0.3 }]}
+              >
+                <Text style={styles.scrubBtnText}>‹ Prev</Text>
+              </Pressable>
+              <Text style={styles.scrubCounter}>
+                Frame {frameIndex + 1} of {burstCount}
+              </Text>
+              <Pressable
+                disabled={frameIndex === burstCount - 1}
+                onPress={() => setFrameIndex(prev => Math.min(burstCount - 1, prev + 1))}
+                style={[styles.scrubBtn, frameIndex === burstCount - 1 && { opacity: 0.3 }]}
+              >
+                <Text style={styles.scrubBtnText}>Next ›</Text>
+              </Pressable>
+            </View>
+          )}
+
           <View style={styles.modalFooter}>
             <Text style={styles.modalFooterText}>
-              {selectedMedia?.hasVideo ? '🎥 10s Clip  •  ' : ''}
+              {burstCount > 1 ? `⚡ 10s Burst Sequence (${burstCount} photos)  •  ` : ''}
               {selectedMedia?.uploaded ? '☁️ Synced to Drive' : '💾 Saved Locally'}
             </Text>
           </View>
@@ -265,5 +298,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.sm,
     borderRadius: RADIUS.xl,
+  },
+  scrubberRow: {
+    position: 'absolute',
+    bottom: 100,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.md,
+    zIndex: 20,
+  },
+  scrubBtn: {
+    backgroundColor: COLORS.CARD,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs + 2,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.BORDER,
+  },
+  scrubBtnText: {
+    color: COLORS.PRIMARY,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  scrubCounter: {
+    color: COLORS.TEXT,
+    fontSize: 14,
+    fontFamily: 'monospace',
+    backgroundColor: COLORS.SURFACE,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs + 2,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.BORDER,
   },
 });
