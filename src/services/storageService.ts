@@ -1,4 +1,4 @@
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import * as FileSystem from 'expo-file-system/legacy';
 import { StorageStatus } from '../types';
 
@@ -38,15 +38,20 @@ export const checkStorageSpace = async (): Promise<StorageStatus> => {
  */
 export const requestMediaPermission = async (): Promise<boolean> => {
   try {
-    const { status } = await MediaLibrary.requestPermissionsAsync();
+    const { status } = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
     if (status !== 'granted') {
       console.warn('[Storage] Media library permission denied');
       return false;
     }
     return true;
   } catch (e) {
-    console.warn('[Storage] Permission request error:', e);
-    return false;
+    console.warn('[Storage] Permission request error, checking existing permissions:', e);
+    try {
+      const res = await MediaLibrary.getPermissionsAsync(false, ['photo', 'video']);
+      return res.granted;
+    } catch {
+      return false;
+    }
   }
 };
 

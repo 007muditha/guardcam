@@ -35,10 +35,10 @@ export interface StorageStatus {
   freeBytes: number;
 }
 
-// Calibrated for v5.1 instant detection
-// High = 0.05, Medium = 0.06, Low = 0.10
+// Calibrated for pixelmatch: fraction of frame pixels that changed significantly
+// High = 0.05 (5% of frame), Medium = 0.10 (10% of frame), Low = 0.20 (20% of frame)
 export const SENSITIVITY_THRESHOLDS = {
-  low: 0.10,
-  medium: 0.06,
+  low: 0.20,
+  medium: 0.10,
   high: 0.05,
 };

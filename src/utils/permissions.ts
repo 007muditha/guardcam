@@ -1,5 +1,5 @@
 import { Camera } from 'expo-camera';
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 
 export interface AppPermissionsStatus {
   camera: boolean;
@@ -24,7 +24,7 @@ export const requestCameraPermission = async (): Promise<boolean> => {
  */
 export const requestStoragePermission = async (): Promise<boolean> => {
   try {
-    const status = await MediaLibrary.requestPermissionsAsync();
+    const status = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
     return status.granted;
   } catch (error) {
     console.error('Failed to request storage permission', error);
@@ -47,7 +47,7 @@ export const requestAllPermissions = async (): Promise<AppPermissionsStatus> => 
 export const checkAllPermissions = async (): Promise<AppPermissionsStatus> => {
   try {
     const cameraStatus = await Camera.getCameraPermissionsAsync();
-    const storageStatus = await MediaLibrary.getPermissionsAsync();
+    const storageStatus = await MediaLibrary.getPermissionsAsync(false, ['photo', 'video']);
     
     return {
       camera: cameraStatus.granted,

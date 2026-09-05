@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, FlatList, Image, Dimensions, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { COLORS, SPACING, RADIUS } from '../utils/constants';
 import { getEvents } from '../services/movementLogService';
 import { formatTime, formatRelativeDate } from '../utils/formatters';

@@ -197,7 +197,11 @@ export const CCTVScreen = () => {
 
   return (
     <View style={styles.container}>
-      {state === 'stealth' && <StatusBar hidden />}
+      {state === 'stealth' ? (
+        <StatusBar hidden backgroundColor="#000000" />
+      ) : (
+        <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
+      )}
 
       <CameraView
         ref={cameraRef}
@@ -205,10 +209,12 @@ export const CCTVScreen = () => {
         facing={facing}
       />
 
-      <Animated.View
-        style={[styles.motionFlash, { opacity: flashAnim }]}
-        pointerEvents="none"
-      />
+      {state !== 'stealth' && (
+        <Animated.View
+          style={[styles.motionFlash, { opacity: flashAnim }]}
+          pointerEvents="none"
+        />
+      )}
 
       {(state === 'stealth' || state === 'controls_visible') && (
         <Pressable
@@ -283,15 +289,18 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.BACKGROUND,
   },
   stealthOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
+    ...StyleSheet.absoluteFill,
+    backgroundColor: '#000000',
+    zIndex: 50,
+    elevation: 50,
   },
   motionFlash: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderWidth: 4,
     borderColor: COLORS.PRIMARY,
     borderRadius: 0,
     zIndex: 100,
+    elevation: 100,
   },
   indicatorRow: {
     position: 'absolute',
@@ -299,6 +308,8 @@ const styles = StyleSheet.create({
     right: 20,
     flexDirection: 'row',
     alignItems: 'center',
+    zIndex: 55,
+    elevation: 55,
   },
   indicator: {
     width: 6,
@@ -325,6 +336,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderBottomWidth: 0,
     borderColor: COLORS.BORDER,
+    zIndex: 60,
+    elevation: 60,
   },
   controlsHeader: {
     flexDirection: 'row',
