@@ -18,10 +18,10 @@ import { AppSettings } from '../types';
 
 const DEFAULT_SETTINGS: AppSettings = {
   sensitivity: 'medium',
-  captureMode: 'photo',
+  recordVideo: true,
+  videoDuration: 10,
   cameraPosition: 'back',
   showStealthIndicator: true,
-  videoDuration: 10,
   saveToGallery: true,
   googleDriveEnabled: false,
 };
@@ -263,23 +263,24 @@ export const SettingsScreen = () => {
           <Text style={styles.sectionTitle}>💾 Capture & Save</Text>
           <View style={styles.card}>
             <View style={styles.switchRow}>
-              <Text style={styles.label}>Capture Mode</Text>
-              {(settings.captureMode === 'video' || settings.captureMode === 'both') && (
-                <View style={styles.proActiveBadge}>
-                  <Text style={styles.proActiveBadgeText}>👑 PRO ACTIVE</Text>
-                </View>
-              )}
+              <View style={styles.switchLabel}>
+                <Text style={styles.label}>Record Video on Motion</Text>
+                <Text style={styles.hint}>
+                  When motion is detected, record a video clip from the motion point
+                </Text>
+              </View>
+              <Switch
+                value={settings.recordVideo !== false}
+                onValueChange={(val) => {
+                  updateSetting('recordVideo', val);
+                  updateSetting('captureMode', val ? 'both' : 'photo');
+                }}
+                trackColor={{ false: COLORS.SURFACE, true: COLORS.PRIMARY }}
+                thumbColor={settings.recordVideo !== false ? '#fff' : COLORS.TEXT_DIM}
+              />
             </View>
 
-            <View style={styles.pillSpacer}>
-              {renderPillRow('captureMode', [
-                { value: 'photo', label: '📷 Photo' },
-                { value: 'both', label: '⚡ Photo + Video' },
-                { value: 'video', label: '🎥 Video Only' },
-              ])}
-            </View>
-
-            {(settings.captureMode === 'video' || settings.captureMode === 'both') && (
+            {settings.recordVideo !== false && (
               <>
                 <View style={styles.divider} />
                 <View style={styles.switchRow}>
@@ -295,14 +296,14 @@ export const SettingsScreen = () => {
                   ])}
                 </View>
                 <Text style={styles.hint}>
-                  ⚡ When motion is detected, GuardCam takes an evidence photo and records a {settings.videoDuration || 10}-second video clip with audio.
+                  ⚡ GuardCam takes an evidence photo and immediately records a {settings.videoDuration || 10}-second video clip from the moment motion is detected.
                 </Text>
               </>
             )}
 
             <View style={styles.divider} />
             <Text style={styles.hint}>
-              📱 Footage is safely saved to device storage and uploaded to your private Google Drive folder in real time.
+              📱 Photos and videos are saved to device storage (GuardCam folder) and synced directly to Google Drive.
             </Text>
           </View>
         </View>

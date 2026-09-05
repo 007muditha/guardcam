@@ -15,10 +15,10 @@ import { requestMediaPermission } from '../services/storageService';
 
 const DEFAULT_SETTINGS: AppSettings = {
   sensitivity: 'medium',
-  captureMode: 'photo',
+  recordVideo: true,
+  videoDuration: DETECTION.VIDEO_DEFAULT_DURATION,
   cameraPosition: 'back',
   showStealthIndicator: true,
-  videoDuration: DETECTION.VIDEO_DEFAULT_DURATION,
   saveToGallery: true,
   googleDriveEnabled: false,
 };
@@ -40,6 +40,15 @@ export const CCTVScreen = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const sessionStartTime = useRef(Date.now());
   const isCapturing = useRef(false);
+  const cameraReadyPromiseRef = useRef<(() => void) | null>(null);
+
+  const handleCameraReady = useCallback(() => {
+    console.log('[CameraView] ✅ Native camera is READY (mode:', cameraMode, ')');
+    if (cameraReadyPromiseRef.current) {
+      cameraReadyPromiseRef.current();
+      cameraReadyPromiseRef.current = null;
+    }
+  }, [cameraMode]);
 
   const controlsAnim = useRef(new Animated.Value(300)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -91,9 +100,20 @@ export const CCTVScreen = () => {
           setLastDetection(formatTime(event.timestamp));
         },
         async (mode: 'picture' | 'video') => {
+          if (cameraMode === mode) return;
+          console.log(`[CameraView] 🔄 Switching mode to: ${mode}...`);
+          const waitReady = new Promise<void>((resolve) => {
+            cameraReadyPromiseRef.current = resolve;
+            // Safety timeout fallback if onCameraReady doesn't fire
+            setTimeout(() => {
+              console.log('[CameraView] ⏱️ Timeout fallback reached for mode switch');
+              resolve();
+            }, 1800);
+          });
           setCameraMode(mode);
-          // Wait for CameraX useCases to rebind
-          await new Promise(r => setTimeout(r, 400));
+          await waitReady;
+          // Short safety buffer for native hardware pipeline stabilization
+          await new Promise(r => setTimeout(r, 300));
         },
         (recording: boolean) => {
           setIsRecordingVideo(recording);
@@ -239,6 +259,7 @@ export const CCTVScreen = () => {
         mode={cameraMode}
         mute={!micPermission?.granted}
         animateShutter={false}
+        onCameraReady={handleCameraReady}
       />
 
       {state !== 'stealth' && (

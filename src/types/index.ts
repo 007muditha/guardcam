@@ -20,10 +20,11 @@ export interface CCTVSession {
 
 export interface AppSettings {
   sensitivity: 'low' | 'medium' | 'high';
-  captureMode: 'photo' | 'video' | 'both';
+  recordVideo: boolean;
+  videoDuration: number;
+  captureMode?: 'photo' | 'video' | 'both';
   cameraPosition: 'front' | 'back';
   showStealthIndicator: boolean;
-  videoDuration: number;
   saveToGallery: boolean;
   googleDriveEnabled: boolean;
   googleDriveFolderId?: string;

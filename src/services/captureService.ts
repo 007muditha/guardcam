@@ -26,14 +26,42 @@ export const capturePhoto = async (camera: RefObject<any>): Promise<string | nul
  */
 export const startVideoRecording = async (camera: RefObject<any>, durationSec: number): Promise<string | null> => {
   try {
-    if (!camera.current) return null;
-    const videoPromise = camera.current.recordAsync({
-      maxDuration: durationSec
+    if (!camera.current) {
+      console.warn('[Capture] Camera ref is null when starting video');
+      return null;
+    }
+
+    console.log(`[Capture] 🎥 Calling recordAsync(maxDuration: ${durationSec}s)...`);
+
+    let stopTimer: any = null;
+    const safetyPromise = new Promise<void>((resolve) => {
+      stopTimer = setTimeout(async () => {
+        try {
+          console.log('[Capture] ⏱️ Duration reached, ensuring recording stops...');
+          if (camera.current && typeof camera.current.stopRecording === 'function') {
+            camera.current.stopRecording();
+          }
+        } catch (e) {
+          console.warn('[Capture] Error calling stopRecording:', e);
+        }
+        resolve();
+      }, (durationSec + 1) * 1000);
     });
-    const video = await videoPromise;
-    return video?.uri || null;
-  } catch (error) {
-    console.error('Failed to start video recording', error);
+
+    const videoPromise = camera.current.recordAsync({
+      maxDuration: durationSec,
+    });
+
+    const recordingResult = await Promise.race([
+      videoPromise,
+      safetyPromise.then(() => videoPromise),
+    ]);
+
+    if (stopTimer) clearTimeout(stopTimer);
+    console.log('[Capture] 🎥 recordAsync completed with:', recordingResult);
+    return recordingResult?.uri || null;
+  } catch (error: any) {
+    console.error('[Capture] ❌ Failed to record video:', error?.message || error);
     return null;
   }
 };
@@ -63,17 +91,14 @@ export const handleCapture = async (
   try {
     const timestamp = Date.now();
     const eventId = generateEventId();
-    const isVideoRequested = settings.captureMode === 'video' || settings.captureMode === 'both';
-    const isPhotoRequested = settings.captureMode === 'photo' || settings.captureMode === 'both';
+    // Video is recorded if recordVideo is ON (or legacy both/video mode)
+    const isVideoRequested = settings.recordVideo !== false && settings.captureMode !== 'photo';
     const videoDuration = settings.videoDuration || 10;
     
-    // 1. Capture instant evidence photo snapshot if requested
-    let photoUri: string | null = null;
-    if (isPhotoRequested) {
-      photoUri = await capturePhoto(camera);
-    }
+    // 1. Capture instant evidence photo snapshot first
+    const photoUri = await capturePhoto(camera);
     
-    // 2. If 10s video recording is requested, switch camera mode and record
+    // 2. If video recording is enabled, switch camera mode and record from the point motion was captured
     let videoUri: string | null = null;
     if (isVideoRequested) {
       try {
@@ -84,9 +109,9 @@ export const handleCapture = async (
           onRecordingStatusChange(true);
         }
 
-        console.log(`[Capture] 🎥 Recording ${videoDuration}s video clip...`);
+        console.log(`[Capture] 🎥 Recording ${videoDuration}s video clip from motion point...`);
         videoUri = await startVideoRecording(camera, videoDuration);
-        console.log('[Capture] 🎥 Video recording finished:', videoUri ? 'Success' : 'Failed');
+        console.log('[Capture] 🎥 Video recording status:', videoUri ? 'Success' : 'Failed');
       } catch (videoErr) {
         console.error('[Capture] Video recording error:', videoErr);
       } finally {
