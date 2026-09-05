@@ -57,7 +57,7 @@ export const GalleryScreen = () => {
           resizeMode="cover"
         />
         <View style={styles.badgeContainer}>
-          <Text style={styles.badgeText}>{item.hasVideo ? '🎥' : '📷'}</Text>
+          <Text style={styles.badgeText}>{item.hasVideo ? '🎥 10s' : '📷'}</Text>
         </View>
         {item.uploaded && <View style={styles.uploadedDot} />}
       </Pressable>
@@ -116,6 +116,7 @@ export const GalleryScreen = () => {
 
           <View style={styles.modalFooter}>
             <Text style={styles.modalFooterText}>
+              {selectedMedia?.hasVideo ? '🎥 10s Clip  •  ' : ''}
               {selectedMedia?.uploaded ? '☁️ Synced to Drive' : '💾 Saved Locally'}
             </Text>
           </View>

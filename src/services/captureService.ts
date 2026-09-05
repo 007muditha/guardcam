@@ -51,92 +51,137 @@ export const stopVideoRecording = async (camera: RefObject<any>): Promise<void> 
 };
 
 /**
- * Orchestrates capturing photo/video, saving, and logging.
+ * Orchestrates capturing photo and/or 10s video, saving to local storage, and uploading to Google Drive.
  */
 export const handleCapture = async (
   camera: RefObject<any>, 
   settings: AppSettings, 
-  onEvent: (event: MotionEvent) => Promise<void>
+  onEvent: (event: MotionEvent) => Promise<void>,
+  switchCameraMode?: (mode: 'picture' | 'video') => Promise<void>,
+  onRecordingStatusChange?: (isRecording: boolean) => void
 ): Promise<void> => {
   try {
     const timestamp = Date.now();
     const eventId = generateEventId();
+    const isVideoRequested = settings.captureMode === 'video' || settings.captureMode === 'both';
+    const isPhotoRequested = settings.captureMode === 'photo' || settings.captureMode === 'both';
+    const videoDuration = settings.videoDuration || 10;
     
-    // 1. Take photo (always)
-    const photoUri = await capturePhoto(camera);
+    // 1. Capture instant evidence photo snapshot if requested
+    let photoUri: string | null = null;
+    if (isPhotoRequested) {
+      photoUri = await capturePhoto(camera);
+    }
     
-    // 2. If video enabled, record
+    // 2. If 10s video recording is requested, switch camera mode and record
     let videoUri: string | null = null;
-    if (settings.captureMode === 'video' || settings.captureMode === 'both') {
-      videoUri = await startVideoRecording(camera, settings.videoDuration);
+    if (isVideoRequested) {
+      try {
+        if (switchCameraMode) {
+          await switchCameraMode('video');
+        }
+        if (onRecordingStatusChange) {
+          onRecordingStatusChange(true);
+        }
+
+        console.log(`[Capture] 🎥 Recording ${videoDuration}s video clip...`);
+        videoUri = await startVideoRecording(camera, videoDuration);
+        console.log('[Capture] 🎥 Video recording finished:', videoUri ? 'Success' : 'Failed');
+      } catch (videoErr) {
+        console.error('[Capture] Video recording error:', videoErr);
+      } finally {
+        if (onRecordingStatusChange) {
+          onRecordingStatusChange(false);
+        }
+        if (switchCameraMode) {
+          await switchCameraMode('picture');
+        }
+      }
     }
     
     let finalPhotoUri = photoUri;
+    let finalVideoUri = videoUri;
     let uploaded = false;
     let uploadedAt: number | undefined = undefined;
-    
+    const shouldSaveGallery = settings.saveToGallery !== false;
+
+    // Get Google Drive token if enabled
+    let gDriveToken: string | null = null;
+    if (settings.googleDriveEnabled && settings.googleDriveFolderId) {
+      gDriveToken = await getAccessToken();
+    }
+
+    // 3. Process photo (upload to Google Drive & save to persistent storage)
     if (photoUri) {
-      // 3. If Google Drive configured, upload
-      if (settings.googleDriveEnabled && settings.googleDriveFolderId) {
-        const token = await getAccessToken();
-        if (token) {
-          try {
-            await uploadFile(
-              photoUri,
-              `GuardCam_${eventId}.jpg`,
-              'image/jpeg',
-              settings.googleDriveFolderId,
-              token
-            );
-            uploaded = true;
-            uploadedAt = Date.now();
-          } catch (e) {
-            console.error('Google drive upload failed', e);
-          }
+      if (gDriveToken && settings.googleDriveFolderId) {
+        try {
+          await uploadFile(
+            photoUri,
+            `GuardCam_${eventId}.jpg`,
+            'image/jpeg',
+            settings.googleDriveFolderId,
+            gDriveToken
+          );
+          uploaded = true;
+          uploadedAt = Date.now();
+          console.log('[Capture] ☁️ Photo uploaded to Google Drive');
+        } catch (e) {
+          console.error('[Capture] Google Drive photo upload failed', e);
         }
       }
-      
-      // 4. Save to persistent local gallery if enabled
-      const shouldSaveGallery = settings.saveToGallery !== false;
+
       if (shouldSaveGallery) {
         const spaceOk = await hasEnoughSpace();
         if (spaceOk) {
           try {
             finalPhotoUri = await saveToGallery(photoUri, 'photo');
           } catch (e) {
-            console.error('Gallery save failed, keeping local temp photo', e);
+            console.error('[Capture] Gallery photo save failed', e);
           }
         }
       }
+    }
 
-      // 5. If video was recorded and Google Drive is enabled, upload video too
-      if (videoUri && settings.googleDriveEnabled && settings.googleDriveFolderId) {
-        const token = await getAccessToken();
-        if (token) {
+    // 4. Process video (upload to Google Drive & save to persistent storage)
+    if (videoUri) {
+      if (gDriveToken && settings.googleDriveFolderId) {
+        try {
+          await uploadFile(
+            videoUri,
+            `GuardCam_${eventId}.mp4`,
+            'video/mp4',
+            settings.googleDriveFolderId,
+            gDriveToken
+          );
+          uploaded = true;
+          uploadedAt = Date.now();
+          console.log('[Capture] ☁️ Video clip uploaded to Google Drive');
+        } catch (e) {
+          console.error('[Capture] Google Drive video upload failed', e);
+        }
+      }
+
+      if (shouldSaveGallery) {
+        const spaceOk = await hasEnoughSpace();
+        if (spaceOk) {
           try {
-            await uploadFile(
-              videoUri,
-              `GuardCam_${eventId}.mp4`,
-              'video/mp4',
-              settings.googleDriveFolderId,
-              token
-            );
+            finalVideoUri = await saveToGallery(videoUri, 'video');
           } catch (e) {
-            console.error('Google drive video upload failed', e);
+            console.error('[Capture] Gallery video save failed', e);
           }
         }
       }
     }
     
-    // 5. Log event with media status
+    // 5. Log event with photo and video details
     const event: MotionEvent = {
       id: eventId,
       timestamp,
       type: 'motion',
       hasPhoto: !!finalPhotoUri,
-      hasVideo: !!videoUri,
+      hasVideo: !!finalVideoUri,
       photoUri: finalPhotoUri || undefined,
-      videoUri: videoUri || undefined,
+      videoUri: finalVideoUri || undefined,
       uploaded,
       uploadedAt
     };

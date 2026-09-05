@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated, StatusBar } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { useNavigation } from '@react-navigation/native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { COLORS, SPACING, RADIUS, DETECTION } from '../utils/constants';
@@ -26,7 +26,10 @@ const DEFAULT_SETTINGS: AppSettings = {
 export const CCTVScreen = () => {
   const navigation = useNavigation();
   const [permission, requestPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const [facing, setFacing] = useState<'front' | 'back'>('back');
+  const [cameraMode, setCameraMode] = useState<'picture' | 'video'>('picture');
+  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const cameraRef = useRef<any>(null);
 
   const [state, setState] = useState<'initializing' | 'preview' | 'stealth' | 'controls_visible'>('initializing');
@@ -76,15 +79,34 @@ export const CCTVScreen = () => {
         Animated.timing(flashAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
       ]).start();
 
-      await handleCapture(cameraRef, settings, async (event: MotionEvent) => {
-        await addEvent(event);
-        setEventCount(prev => prev + 1);
-        setLastDetection(formatTime(event.timestamp));
-      });
+      // Pause frame analysis during active capture & 10s video recording
+      stopMotionDetection();
+
+      await handleCapture(
+        cameraRef,
+        settings,
+        async (event: MotionEvent) => {
+          await addEvent(event);
+          setEventCount(prev => prev + 1);
+          setLastDetection(formatTime(event.timestamp));
+        },
+        async (mode: 'picture' | 'video') => {
+          setCameraMode(mode);
+          // Wait for CameraX useCases to rebind
+          await new Promise(r => setTimeout(r, 400));
+        },
+        (recording: boolean) => {
+          setIsRecordingVideo(recording);
+        }
+      );
     } catch (error) {
       console.error('Motion capture error:', error);
     } finally {
+      setCameraMode('picture');
+      setIsRecordingVideo(false);
       isCapturing.current = false;
+      // Resume motion detection loop
+      startMotionDetection(cameraRef, settings.sensitivity, onMotionDetected, 3000);
     }
   }, [settings]);
 
@@ -95,6 +117,13 @@ export const CCTVScreen = () => {
     const init = async () => {
       if (!permission?.granted) {
         await requestPermission();
+      }
+      if (!micPermission?.granted) {
+        try {
+          await requestMicPermission();
+        } catch (e) {
+          console.warn('Microphone permission optional:', e);
+        }
       }
       await requestMediaPermission();
       setState('preview');
@@ -207,6 +236,8 @@ export const CCTVScreen = () => {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing={facing}
+        mode={cameraMode}
+        mute={!micPermission?.granted}
         animateShutter={false}
       />
 
@@ -225,8 +256,14 @@ export const CCTVScreen = () => {
           {state === 'stealth' && settings.showStealthIndicator && (
             <View style={styles.indicatorRow}>
               <Animated.View style={[styles.indicator, { transform: [{ scale: pulseAnim }] }]} />
-              {eventCount > 0 && (
-                <Text style={styles.eventBadge}>{eventCount}</Text>
+              {isRecordingVideo ? (
+                <View style={styles.recTag}>
+                  <Text style={styles.recTagText}>REC {settings.videoDuration || 10}s</Text>
+                </View>
+              ) : (
+                eventCount > 0 && (
+                  <Text style={styles.eventBadge}>{eventCount}</Text>
+                )
               )}
             </View>
           )}
@@ -236,7 +273,9 @@ export const CCTVScreen = () => {
       {state === 'controls_visible' && (
         <Animated.View style={[styles.controlsPanel, { transform: [{ translateY: controlsAnim }] }]}>
           <View style={styles.controlsHeader}>
-            <Text style={styles.controlsTitle}>🔴 CCTV Active</Text>
+            <Text style={styles.controlsTitle}>
+              {isRecordingVideo ? '🎥 Recording 10s Clip...' : '🔴 CCTV Active'}
+            </Text>
             <Text style={styles.controlsTime}>{getElapsedTime()}</Text>
           </View>
 
@@ -458,5 +497,17 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: 'monospace',
     textAlign: 'center',
+  },
+  recTag: {
+    backgroundColor: COLORS.DANGER,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: RADIUS.sm,
+    marginLeft: 8,
+  },
+  recTagText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: 'bold',
   },
 });

@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   captureMode: 'photo',
   cameraPosition: 'back',
   showStealthIndicator: true,
-  videoDuration: 15,
+  videoDuration: 10,
   saveToGallery: true,
   googleDriveEnabled: false,
 };
@@ -262,29 +262,47 @@ export const SettingsScreen = () => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>💾 Capture & Save</Text>
           <View style={styles.card}>
-            <Text style={styles.label}>Capture Mode</Text>
-            <View style={styles.pillSpacer}>
-              <View style={styles.pillGroup}>
-                <View style={[styles.pillBtn, styles.pillBtnActive]}>
-                  <Text style={[styles.pillText, styles.pillTextActive]}>📷 Photo (Base Model)</Text>
+            <View style={styles.switchRow}>
+              <Text style={styles.label}>Capture Mode</Text>
+              {(settings.captureMode === 'video' || settings.captureMode === 'both') && (
+                <View style={styles.proActiveBadge}>
+                  <Text style={styles.proActiveBadgeText}>👑 PRO ACTIVE</Text>
                 </View>
-              </View>
+              )}
             </View>
 
-            <View style={styles.divider} />
-            <View style={styles.switchRow}>
-              <View style={styles.switchLabel}>
-                <Text style={styles.label}>🎥 Video Clip Capture</Text>
-                <Text style={styles.hint}>Record short video clips on motion detection</Text>
-              </View>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>👑 PRO (Coming Soon)</Text>
-              </View>
+            <View style={styles.pillSpacer}>
+              {renderPillRow('captureMode', [
+                { value: 'photo', label: '📷 Photo' },
+                { value: 'both', label: '⚡ Photo + Video' },
+                { value: 'video', label: '🎥 Video Only' },
+              ])}
             </View>
+
+            {(settings.captureMode === 'video' || settings.captureMode === 'both') && (
+              <>
+                <View style={styles.divider} />
+                <View style={styles.switchRow}>
+                  <Text style={styles.label}>Video Clip Duration</Text>
+                  <Text style={styles.durationValue}>{settings.videoDuration || 10}s</Text>
+                </View>
+                <View style={styles.pillSpacer}>
+                  {renderPillRow('videoDuration', [
+                    { value: 5, label: '5s' },
+                    { value: 10, label: '10s (Best)' },
+                    { value: 15, label: '15s' },
+                    { value: 30, label: '30s' },
+                  ])}
+                </View>
+                <Text style={styles.hint}>
+                  ⚡ When motion is detected, GuardCam takes an evidence photo and records a {settings.videoDuration || 10}-second video clip with audio.
+                </Text>
+              </>
+            )}
 
             <View style={styles.divider} />
             <Text style={styles.hint}>
-              📱 Captured photos are saved automatically to your device Photos gallery in the "GuardCam" album.
+              📱 Footage is safely saved to device storage and uploaded to your private Google Drive folder in real time.
             </Text>
           </View>
         </View>
@@ -646,6 +664,24 @@ const styles = StyleSheet.create({
   statusBadgeText: {
     color: COLORS.TEXT_DIM,
     fontSize: 11,
+    fontWeight: 'bold',
+  },
+  proActiveBadge: {
+    backgroundColor: 'rgba(0, 255, 136, 0.15)',
+    paddingHorizontal: SPACING.sm + 4,
+    paddingVertical: SPACING.xs + 2,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.PRIMARY,
+  },
+  proActiveBadgeText: {
+    color: COLORS.PRIMARY,
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  durationValue: {
+    color: COLORS.PRIMARY,
+    fontSize: 14,
     fontWeight: 'bold',
   },
   btnRow: {
