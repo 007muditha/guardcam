@@ -26,9 +26,9 @@ export const requestStoragePermission = async (): Promise<boolean> => {
   try {
     const status = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
     return status.granted;
-  } catch (error) {
-    console.error('Failed to request storage permission', error);
-    return false;
+  } catch {
+    // Expo Go on Android does not permit system media library access, but internal app storage is always available
+    return true;
   }
 };
 
@@ -47,14 +47,20 @@ export const requestAllPermissions = async (): Promise<AppPermissionsStatus> => 
 export const checkAllPermissions = async (): Promise<AppPermissionsStatus> => {
   try {
     const cameraStatus = await Camera.getCameraPermissionsAsync();
-    const storageStatus = await MediaLibrary.getPermissionsAsync(false, ['photo', 'video']);
+    let storageGranted = true;
+    try {
+      const storageStatus = await MediaLibrary.getPermissionsAsync(false, ['photo', 'video']);
+      storageGranted = storageStatus.granted;
+    } catch {
+      storageGranted = true;
+    }
     
     return {
       camera: cameraStatus.granted,
-      storage: storageStatus.granted
+      storage: storageGranted
     };
   } catch (error) {
     console.error('Failed to check permissions', error);
-    return { camera: false, storage: false };
+    return { camera: false, storage: true };
   }
 };

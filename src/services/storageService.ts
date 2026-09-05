@@ -36,62 +36,69 @@ export const checkStorageSpace = async (): Promise<StorageStatus> => {
 /**
  * Requests media library permission. Returns true if granted.
  */
+/**
+ * Requests media library permission. Returns true if granted.
+ * In Expo Go on modern Android, media library access is restricted by Google Play policy,
+ * so we gracefully return false without throwing.
+ */
 export const requestMediaPermission = async (): Promise<boolean> => {
   try {
     const { status } = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
-    if (status !== 'granted') {
-      console.warn('[Storage] Media library permission denied');
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.warn('[Storage] Permission request error, checking existing permissions:', e);
-    try {
-      const res = await MediaLibrary.getPermissionsAsync(false, ['photo', 'video']);
-      return res.granted;
-    } catch {
-      return false;
-    }
+    return status === 'granted';
+  } catch (e: any) {
+    return false;
   }
 };
 
 /**
- * Saves a file to the GuardCam album in gallery.
- * Returns local file:// URI (or asset.uri if file:// is unavailable)
- * so React Native <Image /> can render it without iOS ph:// URL handler crashes.
+ * Saves a file to persistent app storage (and system photo library if supported).
+ * Returns the permanent file URI so React Native <Image /> can render it.
  */
 export const saveToGallery = async (fileUri: string, _type: 'photo' | 'video'): Promise<string> => {
-  try {
-    const hasPermission = await requestMediaPermission();
-    if (!hasPermission) {
-      throw new Error('Media library permission not granted');
-    }
+  let persistentUri = fileUri;
 
-    // Save asset to system camera roll
-    const asset = await MediaLibrary.createAssetAsync(fileUri);
-    if (asset && asset.id) {
-      try {
-        const album = await MediaLibrary.getAlbumAsync('GuardCam');
-        if (album === null || !album.id) {
-          await MediaLibrary.createAlbumAsync('GuardCam', asset.id, false);
-        } else {
-          // Note: Expo MediaLibrary uses singular addAssetsToAlbumAsync
-          await MediaLibrary.addAssetsToAlbumAsync([asset.id], album.id, false);
-        }
-      } catch (albumErr) {
-        console.warn('[Storage] Album grouping fallback:', albumErr);
-      }
+  // 1. Always copy to persistent app storage so photo is never lost to cache clearing
+  try {
+    const filename = fileUri.split('/').pop() || `capture_${Date.now()}.jpg`;
+    const destDir = `${FileSystem.documentDirectory}GuardCam/`;
+    
+    const dirInfo = await FileSystem.getInfoAsync(destDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(destDir, { intermediates: true });
     }
     
-    // Always return fileUri (file://...) so React Native <Image /> renders it natively on iOS/Android
-    const targetUri = fileUri.startsWith('file://') || fileUri.startsWith('/') ? fileUri : (asset?.uri || fileUri);
-    console.log('[Storage] ✅ Saved asset to gallery, display URI:', targetUri);
-    return targetUri;
-  } catch (error) {
-    console.error('[Storage] Failed to save to gallery:', error);
-    // Return original fileUri as fallback so app doesn't break
-    return fileUri;
+    const destUri = `${destDir}${filename}`;
+    await FileSystem.copyAsync({ from: fileUri, to: destUri });
+    persistentUri = destUri;
+    console.log('[Storage] ✅ Saved to persistent app storage:', persistentUri);
+  } catch (fsErr) {
+    console.warn('[Storage] Using original URI:', fsErr);
   }
+
+  // 2. Also try saving to device system gallery if running in a build with MediaLibrary support
+  try {
+    const hasPermission = await requestMediaPermission();
+    if (hasPermission) {
+      const asset = await MediaLibrary.createAssetAsync(persistentUri);
+      if (asset && asset.id) {
+        try {
+          const album = await MediaLibrary.getAlbumAsync('GuardCam');
+          if (album === null || !album.id) {
+            await MediaLibrary.createAlbumAsync('GuardCam', asset.id, false);
+          } else {
+            await MediaLibrary.addAssetsToAlbumAsync([asset.id], album.id, false);
+          }
+        } catch (albumErr) {
+          console.warn('[Storage] Album grouping fallback:', albumErr);
+        }
+      }
+      console.log('[Storage] ✅ Also saved to system photo library');
+    }
+  } catch {
+    // Expo Go graceful fallback: photos remain safely in persistent app storage
+  }
+
+  return persistentUri;
 };
 
 /**
