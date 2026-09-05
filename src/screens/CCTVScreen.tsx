@@ -207,6 +207,7 @@ export const CCTVScreen = () => {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing={facing}
+        animateShutter={false}
       />
 
       {state !== 'stealth' && (

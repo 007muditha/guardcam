@@ -60,6 +60,7 @@ export const analyzeFrame = async (
 
     const photo = await cameraRef.current.takePictureAsync({
       quality: 0.1,
+      shutterSound: false,
     });
 
     if (!photo?.uri) {

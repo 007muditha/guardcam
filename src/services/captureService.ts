@@ -12,6 +12,7 @@ export const capturePhoto = async (camera: RefObject<any>): Promise<string | nul
     if (!camera.current) return null;
     const photo = await camera.current.takePictureAsync({
       quality: 0.8,
+      shutterSound: false,
     });
     return photo?.uri || null;
   } catch (error) {
