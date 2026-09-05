@@ -46,14 +46,21 @@ export const STEALTH = {
 
 export const STORAGE_KEYS = {
   EVENTS: '@guardcam_events',
-  SETTINGS: '@guardcam_settings'
+  SETTINGS: '@guardcam_settings',
+  GDRIVE_TOKEN: '@guardcam_gdrive_token',
+  GDRIVE_EMAIL: '@guardcam_gdrive_email',
+  GDRIVE_FOLDER_ID: '@guardcam_gdrive_folder_id',
+  GDRIVE_CLIENT_ID: '@guardcam_gdrive_client_id',
 };
 
 export const GOOGLE_DRIVE = {
-  SCOPES: ['https://www.googleapis.com/auth/drive.file'],
+  SCOPES: [
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/userinfo.email',
+  ],
   UPLOAD_URL: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
   QUERY_URL: 'https://www.googleapis.com/drive/v3/files',
-  FOLDER_MIME_TYPE: 'application/vnd.google-apps.folder'
+  FOLDER_MIME_TYPE: 'application/vnd.google-apps.folder',
 };
 
 export const ADMOB = {

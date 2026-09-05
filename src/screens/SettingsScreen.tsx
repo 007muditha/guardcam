@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING, RADIUS, STORAGE_KEYS } from '../utils/constants';
 import { clearEvents } from '../services/movementLogService';
 import { cleanupTempFiles } from '../services/storageService';
+import {
+  initGoogleDrive,
+  signIn as gDriveSignIn,
+  signOut as gDriveSignOut,
+  getRedirectUri,
+  saveClientId,
+  getStoredClientId,
+} from '../services/googleDriveService';
 import { AppSettings } from '../types';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -23,9 +31,26 @@ export const SettingsScreen = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [showTermsModal, setShowTermsModal] = useState(false);
 
+  // Google Drive state
+  const [gDriveConnected, setGDriveConnected] = useState(false);
+  const [gDriveEmail, setGDriveEmail] = useState<string | null>(null);
+  const [isConnectingGDrive, setIsConnectingGDrive] = useState(false);
+  const [showClientIdModal, setShowClientIdModal] = useState(false);
+  const [clientIdInput, setClientIdInput] = useState('');
+  const [redirectUri, setRedirectUri] = useState('');
+
   useEffect(() => {
     loadSettings();
+    checkGDriveStatus();
   }, []);
+
+  const checkGDriveStatus = async () => {
+    const status = await initGoogleDrive();
+    setGDriveConnected(status.isSignedIn);
+    setGDriveEmail(status.email);
+    setClientIdInput(status.clientId || '');
+    setRedirectUri(getRedirectUri());
+  };
 
   const loadSettings = async () => {
     try {
@@ -44,6 +69,70 @@ export const SettingsScreen = () => {
     } catch (e) {
       console.warn('Failed to save settings');
     }
+  };
+
+  const handleConnectGDrive = async () => {
+    const storedId = await getStoredClientId();
+    if (!storedId && !clientIdInput.trim()) {
+      setShowClientIdModal(true);
+      return;
+    }
+
+    setIsConnectingGDrive(true);
+    try {
+      const result = await gDriveSignIn(clientIdInput.trim() || undefined);
+      setGDriveConnected(true);
+      setGDriveEmail(result.email);
+      await updateSetting('googleDriveEnabled', true);
+      await updateSetting('googleDriveFolderId', result.folderId);
+      Alert.alert(
+        '✅ Google Drive Connected',
+        `Successfully linked ${result.email}!\n\nSecurity footage will now automatically upload to your dedicated 'GuardCam_Footage' folder.`
+      );
+    } catch (error: any) {
+      if (error?.message === 'USER_CANCELLED') {
+        // User closed browser
+        return;
+      }
+      if (error?.message === 'MISSING_CLIENT_ID') {
+        setShowClientIdModal(true);
+        return;
+      }
+      Alert.alert('Connection Failed', error?.message || 'Could not connect to Google Drive.');
+    } finally {
+      setIsConnectingGDrive(false);
+    }
+  };
+
+  const handleDisconnectGDrive = () => {
+    Alert.alert(
+      'Disconnect Google Drive',
+      'Are you sure you want to unlink your Google Drive account? Cloud backup will be disabled.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            await gDriveSignOut();
+            setGDriveConnected(false);
+            setGDriveEmail(null);
+            await updateSetting('googleDriveEnabled', false);
+            await updateSetting('googleDriveFolderId', undefined);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSaveClientIdAndConnect = async () => {
+    if (!clientIdInput.trim()) {
+      Alert.alert('Required', 'Please enter your Google Cloud OAuth Client ID.');
+      return;
+    }
+    await saveClientId(clientIdInput.trim());
+    setShowClientIdModal(false);
+    handleConnectGDrive();
   };
 
   const handleClearEventsOnly = () => {
@@ -221,17 +310,77 @@ export const SettingsScreen = () => {
 
         {/* Google Drive Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>☁️ Google Drive</Text>
-          <View style={styles.card}>
-            <View style={styles.switchRow}>
-              <View style={styles.switchLabel}>
-                <Text style={styles.label}>Cloud Backup</Text>
-                <Text style={styles.hint}>Sync footage to Google Drive</Text>
-              </View>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>👑 PRO (Coming Soon)</Text>
-              </View>
+          <Text style={styles.sectionTitle}>☁️ Google Drive Cloud Backup</Text>
+
+          {/* Privacy Guarantee Card */}
+          <View style={styles.privacyCard}>
+            <View style={styles.privacyHeader}>
+              <Text style={styles.privacyIcon}>🛡️</Text>
+              <Text style={styles.privacyTitle}>Privacy-First Guarantee</Text>
             </View>
+            <Text style={styles.privacyText}>
+              GuardCam requests restricted per-file access (<Text style={styles.codeText}>drive.file</Text>). GuardCam{' '}
+              <Text style={{ fontWeight: 'bold', color: '#fff' }}>cannot see, read, or touch</Text> any of your personal
+              Google Drive files, photos, or documents. It can only create and access its own private{' '}
+              <Text style={styles.codeText}>GuardCam_Footage</Text> folder.
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            {gDriveConnected ? (
+              <View>
+                <View style={styles.connectedRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.connectedBadge}>● CONNECTED</Text>
+                    <Text style={styles.connectedEmail} numberOfLines={1}>
+                      {gDriveEmail || 'Google Account'}
+                    </Text>
+                    <Text style={styles.connectedFolder}>📁 Folder: GuardCam_Footage</Text>
+                  </View>
+                  <Pressable style={styles.disconnectBtn} onPress={handleDisconnectGDrive}>
+                    <Text style={styles.disconnectBtnText}>Unlink</Text>
+                  </Pressable>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.switchRow}>
+                  <View style={styles.switchLabel}>
+                    <Text style={styles.label}>Auto-Upload on Motion</Text>
+                    <Text style={styles.hint}>Upload footage immediately when motion triggers</Text>
+                  </View>
+                  <Switch
+                    value={settings.googleDriveEnabled}
+                    onValueChange={(val) => updateSetting('googleDriveEnabled', val)}
+                    trackColor={{ false: COLORS.SURFACE, true: COLORS.PRIMARY }}
+                    thumbColor={settings.googleDriveEnabled ? '#fff' : COLORS.TEXT_DIM}
+                  />
+                </View>
+              </View>
+            ) : (
+              <View>
+                <Text style={styles.label}>Cloud Footage Sync</Text>
+                <Text style={styles.hint}>
+                  Automatically upload security photos and clips to your personal Google Drive in real time.
+                </Text>
+
+                <Pressable
+                  style={[styles.gDriveConnectBtn, isConnectingGDrive && { opacity: 0.7 }]}
+                  onPress={handleConnectGDrive}
+                  disabled={isConnectingGDrive}
+                >
+                  {isConnectingGDrive ? (
+                    <ActivityIndicator color="#000" size="small" />
+                  ) : (
+                    <Text style={styles.gDriveConnectBtnText}>🔗 Connect Google Drive</Text>
+                  )}
+                </Pressable>
+
+                <Pressable style={styles.configClientBtn} onPress={() => setShowClientIdModal(true)}>
+                  <Text style={styles.configClientBtnText}>⚙️ Setup Google OAuth Client ID</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         </View>
 
@@ -324,6 +473,56 @@ export const SettingsScreen = () => {
             <Pressable style={styles.termsAcceptBtn} onPress={() => setShowTermsModal(false)}>
               <Text style={styles.termsAcceptText}>I Understand & Agree</Text>
             </Pressable>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* Google OAuth Client ID Setup Modal */}
+      <Modal visible={showClientIdModal} animationType="slide" transparent={true}>
+        <View style={styles.termsModalOverlay}>
+          <SafeAreaView style={styles.termsModalContainer}>
+            <View style={styles.termsModalHeader}>
+              <Text style={styles.termsModalTitle}>⚙️ Google OAuth Setup</Text>
+              <Pressable style={styles.termsCloseBtn} onPress={() => setShowClientIdModal(false)}>
+                <Text style={styles.termsCloseText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.termsScroll}>
+              <Text style={styles.termsHeading}>How to Connect to Google Drive:</Text>
+              <Text style={styles.termsBody}>
+                To enable Google Drive sync, enter your Google Cloud OAuth 2.0 Web Client ID.
+              </Text>
+
+              <Text style={styles.termsHeading}>1. Authorized Redirect URI</Text>
+              <Text style={styles.termsBody}>
+                Copy this exact Redirect URI into your Google Cloud Console OAuth Client:
+              </Text>
+              <View style={styles.codeBox}>
+                <Text style={styles.codeBoxText} selectable={true}>
+                  {redirectUri}
+                </Text>
+              </View>
+
+              <Text style={styles.termsHeading}>2. Google Client ID</Text>
+              <Text style={styles.termsBody}>
+                Paste your Web Client ID below (e.g. xxxxx.apps.googleusercontent.com):
+              </Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Enter Google Client ID"
+                placeholderTextColor={COLORS.TEXT_DIM}
+                value={clientIdInput}
+                onChangeText={setClientIdInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <Pressable style={styles.termsAcceptBtn} onPress={handleSaveClientIdAndConnect}>
+                <Text style={styles.termsAcceptText}>Save & Connect to Drive</Text>
+              </Pressable>
+            </ScrollView>
           </SafeAreaView>
         </View>
       </Modal>
@@ -561,5 +760,116 @@ const styles = StyleSheet.create({
     color: '#000',
     fontWeight: 'bold',
     fontSize: 15,
+  },
+  privacyCard: {
+    backgroundColor: 'rgba(0, 255, 136, 0.08)',
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 136, 0.3)',
+    marginBottom: SPACING.md,
+  },
+  privacyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
+  },
+  privacyIcon: {
+    fontSize: 18,
+    marginRight: 6,
+  },
+  privacyTitle: {
+    color: COLORS.PRIMARY,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  privacyText: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  codeText: {
+    color: COLORS.PRIMARY,
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
+  },
+  connectedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  connectedBadge: {
+    color: COLORS.PRIMARY,
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  connectedEmail: {
+    color: COLORS.TEXT,
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  connectedFolder: {
+    color: COLORS.TEXT_DIM,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  disconnectBtn: {
+    backgroundColor: 'rgba(255, 51, 102, 0.15)',
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.DANGER,
+  },
+  disconnectBtnText: {
+    color: COLORS.DANGER,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  gDriveConnectBtn: {
+    backgroundColor: COLORS.PRIMARY,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    marginTop: SPACING.md,
+  },
+  gDriveConnectBtnText: {
+    color: '#000',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  configClientBtn: {
+    paddingVertical: SPACING.sm,
+    alignItems: 'center',
+    marginTop: SPACING.xs,
+  },
+  configClientBtnText: {
+    color: COLORS.TEXT_DIM,
+    fontSize: 12,
+  },
+  codeBox: {
+    backgroundColor: COLORS.SURFACE,
+    padding: SPACING.sm,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.BORDER,
+    marginVertical: SPACING.xs,
+  },
+  codeBoxText: {
+    color: COLORS.PRIMARY,
+    fontSize: 11,
+    fontFamily: 'monospace',
+  },
+  input: {
+    backgroundColor: COLORS.SURFACE,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.BORDER,
+    color: COLORS.TEXT,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    fontSize: 13,
+    marginVertical: SPACING.sm,
   },
 });

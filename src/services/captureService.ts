@@ -96,15 +96,33 @@ export const handleCapture = async (
         }
       }
       
-      // 4. Else if saveToGallery is enabled (default true) and storage available, save to device gallery
+      // 4. Save to persistent local gallery if enabled
       const shouldSaveGallery = settings.saveToGallery !== false;
-      if (!uploaded && shouldSaveGallery) {
+      if (shouldSaveGallery) {
         const spaceOk = await hasEnoughSpace();
         if (spaceOk) {
           try {
             finalPhotoUri = await saveToGallery(photoUri, 'photo');
           } catch (e) {
             console.error('Gallery save failed, keeping local temp photo', e);
+          }
+        }
+      }
+
+      // 5. If video was recorded and Google Drive is enabled, upload video too
+      if (videoUri && settings.googleDriveEnabled && settings.googleDriveFolderId) {
+        const token = await getAccessToken();
+        if (token) {
+          try {
+            await uploadFile(
+              videoUri,
+              `GuardCam_${eventId}.mp4`,
+              'video/mp4',
+              settings.googleDriveFolderId,
+              token
+            );
+          } catch (e) {
+            console.error('Google drive video upload failed', e);
           }
         }
       }
